@@ -2,7 +2,7 @@
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║   LIFTING OPERATIONS WEATHER FORECAST  v3.1  —  Land + Offshore Combined   ║
 ║   BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006 | NORSOK R-003       ║
-║   Source: ECMWF / ICON / GFS / MetOffice via Open-Meteo                    ║
+║   Source: ECMWF IFS 0.25° via Open-Meteo (free tier)                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
@@ -184,12 +184,8 @@ TERRAIN = {
 }
 
 # Weather models
-MODELS_LAND = {
-    "ECMWF":        {"endpoint": "ecmwf_ifs04",   "weight": 0.40, "label": "ECMWF IFS"},
-    "ICON":         {"endpoint": "icon_seamless",  "weight": 0.30, "label": "ICON"},
-    "GFS":          {"endpoint": "gfs_global",     "weight": 0.20, "label": "GFS"},
-    "MetOffice_UKV":{"endpoint": "ukmo_seamless",  "weight": 0.10, "label": "MetOffice UKV"},
-}
+# Single model — ECMWF IFS 0.25° direct, no blending
+ECMWF_ENDPOINT = "ecmwf_ifs025"
 
 SAVED_LOCS_FILE = "forecast_logs/saved_locations.json"
 
@@ -331,78 +327,66 @@ def save_location(name: str, lat: float, lon: float, crane_h: int, terrain: str)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=1800)
-def fetch_land_model(lat: float, lon: float, endpoint: str, hours: int = 120):
-    """Fetch a single model from Open-Meteo. Returns DataFrame or (None, error_str)."""
+def fetch_ecmwf_land(lat: float, lon: float, hours: int = 168):
+    """
+    Fetch ECMWF IFS 0.25° directly — single best-in-class global model, no blending.
+    Uses list-of-tuples so requests sends hourly=x&hourly=y correctly.
+    timezone=auto gives local time at the coordinates (works for Qatar, UK, anywhere).
+    surface_pressure avoids the pressure_msl 609mb bug.
+    """
     url = "https://api.open-meteo.com/v1/forecast"
-    # Open-Meteo requires hourly params as comma-joined string or repeated keys
-    hourly_vars = "temperature_2m,wind_speed_10m,wind_gusts_10m,precipitation,cloud_cover,wind_direction_10m,pressure_msl,visibility,relative_humidity_2m"
-    params = {
-        "latitude":        lat,
-        "longitude":       lon,
-        "hourly":          hourly_vars,
-        "models":          endpoint,
-        "wind_speed_unit": "ms",
-        "forecast_days":   min(max(hours // 24, 1), 7),
-        "timezone":        "Europe/London",
-    }
+    params = [
+        ("latitude",        lat),
+        ("longitude",       lon),
+        ("wind_speed_unit", "ms"),
+        ("forecast_days",   min(hours // 24 + 1, 7)),
+        ("timezone",        "auto"),
+        ("models",          "ecmwf_ifs025"),
+        ("hourly",          "wind_speed_10m"),
+        ("hourly",          "wind_gusts_10m"),
+        ("hourly",          "wind_direction_10m"),
+        ("hourly",          "temperature_2m"),
+        ("hourly",          "precipitation"),
+        ("hourly",          "cloud_cover"),
+        ("hourly",          "surface_pressure"),
+        ("hourly",          "visibility"),
+        ("hourly",          "relative_humidity_2m"),
+    ]
     try:
         r = requests.get(url, params=params, timeout=15)
         r.raise_for_status()
         body = r.json()
-        # Capture any API-level error message
-        if "error" in body:
-            return None
+        if body.get("error"):
+            st.error(f"Open-Meteo: {body.get('reason', body)}")
+            return None, []
         h = body.get("hourly", {})
         times = h.get("time", [])
         if not times:
-            return None
+            return None, []
         n = len(times)
-        return pd.DataFrame({
-            "time":       pd.to_datetime(times),
-            "wind_speed": pd.to_numeric(h.get("wind_speed_10m",     [np.nan]*n), errors="coerce"),
-            "wind_gust":  pd.to_numeric(h.get("wind_gusts_10m",     [np.nan]*n), errors="coerce"),
-            "wind_dir":   pd.to_numeric(h.get("wind_direction_10m", [np.nan]*n), errors="coerce"),
-            "temperature":pd.to_numeric(h.get("temperature_2m",     [np.nan]*n), errors="coerce"),
-            "precip":     pd.to_numeric(h.get("precipitation",      [np.nan]*n), errors="coerce"),
-            "cloud":      pd.to_numeric(h.get("cloud_cover",        [np.nan]*n), errors="coerce"),
-            "visibility": pd.to_numeric(h.get("visibility",         [np.nan]*n), errors="coerce"),
-            "pressure":   pd.to_numeric(h.get("pressure_msl",       [np.nan]*n), errors="coerce"),
-            "humidity":   pd.to_numeric(h.get("relative_humidity_2m",[np.nan]*n), errors="coerce"),
+        df = pd.DataFrame({
+            "time":        pd.to_datetime(times),
+            "wind_speed":  pd.to_numeric(h.get("wind_speed_10m",       [np.nan]*n), errors="coerce"),
+            "wind_gust":   pd.to_numeric(h.get("wind_gusts_10m",       [np.nan]*n), errors="coerce"),
+            "wind_dir":    pd.to_numeric(h.get("wind_direction_10m",   [np.nan]*n), errors="coerce"),
+            "temperature": pd.to_numeric(h.get("temperature_2m",       [np.nan]*n), errors="coerce"),
+            "precip":      pd.to_numeric(h.get("precipitation",        [np.nan]*n), errors="coerce"),
+            "cloud":       pd.to_numeric(h.get("cloud_cover",          [np.nan]*n), errors="coerce"),
+            "pressure":    pd.to_numeric(h.get("surface_pressure",     [np.nan]*n), errors="coerce"),
+            "visibility":  pd.to_numeric(h.get("visibility",           [np.nan]*n), errors="coerce"),
+            "humidity":    pd.to_numeric(h.get("relative_humidity_2m", [np.nan]*n), errors="coerce"),
         })
-    except Exception:
-        return None
-
-@st.cache_data(ttl=1800)
-def fetch_consensus(lat: float, lon: float, hours: int):
-    """Returns (DataFrame, models_used_list) or (None, [])."""
-    dfs, total_w = {}, 0.0
-    for name, cfg in MODELS_LAND.items():
-        df = fetch_land_model(lat, lon, cfg["endpoint"], hours)
-        if df is not None and not df.empty:
-            dfs[name] = df
-            total_w += cfg["weight"]
-    if not dfs:
+        now = pd.Timestamp.now().floor("h")
+        df  = df[df["time"] >= now].reset_index(drop=True)
+        return df, ["ECMWF IFS 0.25°"]
+    except Exception as e:
+        st.error(f"Fetch error: {e}")
         return None, []
-    cols = ["wind_speed","wind_gust","wind_dir","temperature","precip","cloud","visibility","pressure","humidity"]
-    ref_times = list(dfs.values())[0]["time"].values
-    ref_idx   = pd.DatetimeIndex(ref_times)
-    parts = []
-    for name, df in dfs.items():
-        w = MODELS_LAND[name]["weight"] / total_w
-        aligned = df.set_index("time").reindex(ref_idx)[cols]
-        aligned = aligned.apply(pd.to_numeric, errors="coerce")
-        filled  = aligned.interpolate(method="time", limit=2).fillna(method="ffill").fillna(0)
-        parts.append(filled * w)
-    result = sum(parts).reset_index().rename(columns={"index": "time"})
-    if "time" not in result.columns:
-        result.insert(0, "time", ref_idx)
-    
-    # Filter to current hour onwards
-    london_tz = pytz.timezone("Europe/London")
-    now = pd.Timestamp.now().floor("h")  # naive, matches the column
-    result = result[result["time"] >= now].reset_index(drop=True)
-    
-    return result, list(dfs.keys())
+
+def fetch_consensus(lat: float, lon: float, hours: int):
+    """Alias so rest of main() needs no changes."""
+    return fetch_ecmwf_land(lat, lon, hours)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA FETCH — OFFSHORE (Open-Meteo Marine + Wind)
@@ -840,16 +824,15 @@ def main():
 
     if fetch_btn:
         # Clear Streamlit function-level cache so fresh data is fetched
-        fetch_land_model.clear()
+        fetch_ecmwf_land.clear()
         fetch_offshore_wind.clear()
         fetch_offshore_marine.clear()
-        fetch_consensus.clear()
         for k in ["df_cache", "marine_cache", "fetch_time"]:
             st.session_state.pop(k, None)
 
     if fetch_btn or ("df_cache" not in st.session_state):
         if mode == "land":
-            with st.spinner("Fetching ECMWF / ICON / GFS / MetOffice consensus…"):
+            with st.spinner("Fetching ECMWF IFS 0.25° forecast…"):
                 df, models_used = fetch_consensus(lat, lon, 168)
             if df is None or df.empty:
                 st.error("All weather models failed to respond. Check your internet connection and try again.")
@@ -937,14 +920,14 @@ def main():
         rows = build_offshore_table_html(df, marine, crane_h, wind_unit, temp_unit, forecast_hours)
         hdr  = offshore_header(crane_h)
 
-    # ── PDF download (disabled on cloud — weasyprint needs system libs) ─────────
+    # ── PDF download (disabled on cloud — needs system libs locally) ────────────
     with hc[7]:
         st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
         st.button("📄 PDF", disabled=True, use_container_width=True,
                   help="PDF export available on local install only")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── Share button ──────────────────────────────────────────────────────────
+        # ── Share button ──────────────────────────────────────────────────────────
     with hc[8]:
         st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
         share_url = f"lat={lat:.4f}&lon={lon:.4f}&h={crane_h}&mode={mode}"
@@ -954,7 +937,7 @@ def main():
 
     # ── Location + last updated line ──────────────────────────────────────────
     updated_str = fetch_t.strftime("%H:%M") if fetch_t else "--:--"
-    mode_src = "ECMWF+ICON+GFS+MetOffice" if mode == "land" else "ECMWF Marine"
+    mode_src = "ECMWF IFS 0.25°" if mode == "land" else "ECMWF Marine"
     st.markdown(
         f'<div class="info-line">Location: <b>{loc_name}</b> &nbsp;|&nbsp; '
         f'Last updated {updated_str}  ·  {mode_src}</div>',
@@ -981,7 +964,7 @@ def main():
 ⚠️ <b>FOR PLANNING PURPOSES ONLY.</b> Does not replace a calibrated on-site anemometer.
 Lifting supervisor retains full Go / No-Go responsibility per <b>BS 7121-1:2016</b>,
 <b>LOLER 1998</b>, <b>HSE PM55</b> and <b>IMCA LR006</b>.
-Data: ECMWF / ICON / GFS / MetOffice UKV via Open-Meteo (free tier). v3.1
+Data: ECMWF IFS 0.25° via Open-Meteo (free tier). v4.0
 </div>""", unsafe_allow_html=True)
 
 
