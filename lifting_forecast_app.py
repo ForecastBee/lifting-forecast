@@ -184,8 +184,12 @@ TERRAIN = {
 }
 
 # Weather models
-# Single model — ECMWF IFS 0.25° direct, no blending
-ECMWF_ENDPOINT = "ecmwf_ifs025"
+MODELS_LAND = {
+    "ECMWF":        {"endpoint": "ecmwf_ifs04",   "weight": 0.40, "label": "ECMWF IFS"},
+    "ICON":         {"endpoint": "icon_seamless",  "weight": 0.30, "label": "ICON"},
+    "GFS":          {"endpoint": "gfs_global",     "weight": 0.20, "label": "GFS"},
+    "MetOffice_UKV":{"endpoint": "ukmo_seamless",  "weight": 0.10, "label": "MetOffice UKV"},
+}
 
 SAVED_LOCS_FILE = "forecast_logs/saved_locations.json"
 
@@ -323,16 +327,15 @@ def save_location(name: str, lat: float, lon: float, crane_h: int, terrain: str)
         pass
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DATA FETCH — LAND (Open-Meteo multi-model)
+# DATA FETCH — LAND (ECMWF IFS 0.25° direct — no blending)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=1800)
 def fetch_ecmwf_land(lat: float, lon: float, hours: int = 168):
     """
-    Fetch ECMWF IFS 0.25° directly — single best-in-class global model, no blending.
-    Uses list-of-tuples so requests sends hourly=x&hourly=y correctly.
-    timezone=auto gives local time at the coordinates (works for Qatar, UK, anywhere).
-    surface_pressure avoids the pressure_msl 609mb bug.
+    Fetch ECMWF IFS 0.25° directly from Open-Meteo — no blending with weaker models.
+    ECMWF IFS is the best freely available global model, used by Met agencies worldwide.
+    Uses list-of-tuples params so requests sends hourly=x&hourly=y correctly.
     """
     url = "https://api.open-meteo.com/v1/forecast"
     params = [
@@ -340,8 +343,8 @@ def fetch_ecmwf_land(lat: float, lon: float, hours: int = 168):
         ("longitude",       lon),
         ("wind_speed_unit", "ms"),
         ("forecast_days",   min(hours // 24 + 1, 7)),
-        ("timezone",        "auto"),
-        ("models",          "ecmwf_ifs025"),
+        ("timezone",        "auto"),   # auto = local time at the coordinates
+        ("models",          "ecmwf_ifs025"),   # 0.25° ECMWF IFS — best free global
         ("hourly",          "wind_speed_10m"),
         ("hourly",          "wind_gusts_10m"),
         ("hourly",          "wind_direction_10m"),
@@ -357,7 +360,7 @@ def fetch_ecmwf_land(lat: float, lon: float, hours: int = 168):
         r.raise_for_status()
         body = r.json()
         if body.get("error"):
-            st.error(f"Open-Meteo: {body.get('reason', body)}")
+            st.error(f"Open-Meteo error: {body.get('reason', body)}")
             return None, []
         h = body.get("hourly", {})
         times = h.get("time", [])
@@ -376,17 +379,17 @@ def fetch_ecmwf_land(lat: float, lon: float, hours: int = 168):
             "visibility":  pd.to_numeric(h.get("visibility",           [np.nan]*n), errors="coerce"),
             "humidity":    pd.to_numeric(h.get("relative_humidity_2m", [np.nan]*n), errors="coerce"),
         })
+        # Filter to current hour onwards — naive comparison (API returns naive times)
         now = pd.Timestamp.now().floor("h")
-        df  = df[df["time"] >= now].reset_index(drop=True)
+        df = df[df["time"] >= now].reset_index(drop=True)
         return df, ["ECMWF IFS 0.25°"]
     except Exception as e:
         st.error(f"Fetch error: {e}")
         return None, []
 
+# Alias so the rest of main() doesn't need changing
 def fetch_consensus(lat: float, lon: float, hours: int):
-    """Alias so rest of main() needs no changes."""
     return fetch_ecmwf_land(lat, lon, hours)
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA FETCH — OFFSHORE (Open-Meteo Marine + Wind)
@@ -823,7 +826,7 @@ def main():
         st.stop()
 
     if fetch_btn:
-        # Clear Streamlit function-level cache so fresh data is fetched
+        # Clear cached data so fresh fetch happens
         fetch_ecmwf_land.clear()
         fetch_offshore_wind.clear()
         fetch_offshore_marine.clear()
@@ -832,7 +835,7 @@ def main():
 
     if fetch_btn or ("df_cache" not in st.session_state):
         if mode == "land":
-            with st.spinner("Fetching ECMWF IFS 0.25° forecast…"):
+            with st.spinner("Fetching ECMWF IFS forecast…"):
                 df, models_used = fetch_consensus(lat, lon, 168)
             if df is None or df.empty:
                 st.error("All weather models failed to respond. Check your internet connection and try again.")
@@ -876,8 +879,9 @@ def main():
     DAY_OPTIONS = {1: 24, 3: 72, 7: 168}
     forecast_hours = DAY_OPTIONS[st.session_state.fdays]
 
-    # One row: "Forecast" title | 1day | 3days | 7days | spacer | ⛰️Land | ⚓Sea | 📄PDF | 🔗Share
-    hc = st.columns([1.4, 0.6, 0.6, 0.6, 3.5, 0.8, 0.8, 0.7, 0.7])
+    # One row: "Forecast" title | 1day | 3days | 7days | spacer | ⛰️Land | ⚓Sea | 🔗Share
+    # PDF button removed for Streamlit Cloud compatibility (weasyprint not available)
+    hc = st.columns([1.4, 0.6, 0.6, 0.6, 3.5, 0.8, 0.8, 0.7])
 
     with hc[0]:
         st.markdown('<div class="page-title" style="font-size:1.5rem;margin:0.5rem 0 0 0;">Forecast</div>',
@@ -920,15 +924,8 @@ def main():
         rows = build_offshore_table_html(df, marine, crane_h, wind_unit, temp_unit, forecast_hours)
         hdr  = offshore_header(crane_h)
 
-    # ── PDF download (disabled on cloud — needs system libs locally) ────────────
+    # ── Share button ──────────────────────────────────────────────────────────
     with hc[7]:
-        st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
-        st.button("📄 PDF", disabled=True, use_container_width=True,
-                  help="PDF export available on local install only")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # ── Share button ──────────────────────────────────────────────────────────
-    with hc[8]:
         st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
         share_url = f"lat={lat:.4f}&lon={lon:.4f}&h={crane_h}&mode={mode}"
         st.button("🔗 Share", use_container_width=True, key="share_btn",
