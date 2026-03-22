@@ -22,7 +22,7 @@ import pytz
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Lifting Ops Forecast",
-    page_icon="🏗️",
+    page_icon="🐝",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -901,7 +901,7 @@ def main():
     with hc[5]:
         st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
         land_type = "primary" if mode == "land" else "secondary"
-        if st.button("⛰️ Land", key="toggle_land", type=land_type, use_container_width=True):
+        if st.button("🐝 Land", key="toggle_land", type=land_type, use_container_width=True):
             if mode != "land":
                 st.session_state.mode = "land"
                 st.rerun()
@@ -910,7 +910,7 @@ def main():
     with hc[6]:
         st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
         sea_type = "primary" if mode == "offshore" else "secondary"
-        if st.button("⚓ Sea", key="toggle_sea", type=sea_type, use_container_width=True):
+        if st.button("🪸 Sea", key="toggle_sea", type=sea_type, use_container_width=True):
             if mode != "offshore":
                 st.session_state.mode = "offshore"
                 st.rerun()
