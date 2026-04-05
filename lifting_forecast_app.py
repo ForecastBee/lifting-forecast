@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   LIFTING OPERATIONS WEATHER FORECAST  v4.0  —  Land + Offshore Combined   ║
+║   LIFTING OPERATIONS WEATHER FORECAST  v3.1  —  Land + Offshore Combined   ║
 ║   BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006 | NORSOK R-003       ║
 ║   Source: ECMWF IFS 0.25° via Open-Meteo (free tier)                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -18,13 +18,13 @@ from datetime import datetime, timezone, timedelta
 import pytz
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PAGE CONFIG
+# PAGE CONFIG  — sidebar hidden by CSS, not initial_sidebar_state
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Lifting Ops Forecast",
     page_icon="🐝️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 
@@ -50,9 +50,10 @@ OPEN_METEO_API_KEY  = _secret("OPEN_METEO_API_KEY",   None)
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-/* ── Hide Streamlit chrome (keep sidebar) ── */
+/* ── Hide Streamlit chrome ── */
 #MainMenu, header, footer { visibility: hidden; }
-section[data-testid="stSidebar"] { display: block !important; }
+section[data-testid="stSidebar"] { display: none !important; }
+button[data-testid="collapsedControl"] { display: none !important; }
 .main .block-container { padding: 0.8rem 1.2rem 1rem 1.2rem; max-width: 100%; }
 
 /* ── Page title ── */
@@ -67,6 +68,30 @@ div[data-testid="column"]:has(.btn-align) button { margin-top: 1.65rem; }
 .ci-caution { color: #FB8C00; }
 .ci-danger  { color: #8E24AA; }
 
+/* ── Forecast tab buttons ── */
+.tab-row { display:flex; gap:0; margin: 0.6rem 0 0.3rem 0; align-items:center; }
+.tab-btn {
+    background:#1a1a2e; color:#aaa; border:1px solid #333;
+    padding: 4px 14px; font-size: 0.8rem; cursor:pointer;
+    border-radius: 0;
+}
+.tab-btn:first-child { border-radius: 6px 0 0 6px; }
+.tab-btn:last-child  { border-radius: 0 6px 6px 0; }
+.tab-btn.active { background:#EF4444; color:#fff; border-color:#EF4444; font-weight:700; }
+
+/* ── Land/Sea toggle ── */
+.mode-toggle { display:flex; gap:0; }
+.mode-btn {
+    display:inline-flex; align-items:center; gap:5px;
+    padding: 4px 14px; font-size: 0.8rem; font-weight:600;
+    border: 1px solid #555; cursor:pointer; border-radius:0;
+    background:#1a1a2e; color:#aaa;
+}
+.mode-btn:first-child { border-radius: 6px 0 0 6px; }
+.mode-btn:last-child  { border-radius: 0 6px 6px 0; }
+.mode-btn.active-land { background:#EF4444; color:#fff; border-color:#EF4444; }
+.mode-btn.active-sea  { background:#EF4444; color:#fff; border-color:#EF4444; }
+
 /* ── Info line ── */
 .info-line { font-size:0.8rem; color:#90CAF9; margin: 0.15rem 0 0.3rem 0; }
 
@@ -79,7 +104,6 @@ div[data-testid="column"]:has(.btn-align) button { margin-top: 1.65rem; }
 .box-info    { background:rgba(21,101,192,.15); border:1px solid #1565C0; border-radius:7px; padding:.6rem .8rem; margin:.3rem 0; font-size:.8rem; }
 .box-caution { background:rgba(230,81,0,.15);  border:1px solid #E65100; border-radius:7px; padding:.6rem .8rem; margin:.3rem 0; font-size:.8rem; }
 .box-danger  { background:rgba(74,20,140,.15); border:1px solid #8E24AA; border-radius:7px; padding:.6rem .8rem; margin:.3rem 0; font-size:.8rem; }
-.box-warning { background:rgba(255,193,7,.1); border:1px solid #FFC107; border-radius:7px; padding:.6rem .8rem; margin:.3rem 0; font-size:.8rem; }
 
 /* ── Saved location pills ── */
 .saved-pill { display:inline-block; background:#1a2a3a; border:1px solid #1565C0;
@@ -121,18 +145,15 @@ div[data-testid="column"]:has(.btn-align) button { margin-top: 1.65rem; }
 .fc-table td.wave-cell { border-radius:5px; padding:4px 5px; }
 .fc-table small { font-size:0.65em; opacity:0.85; display:block; }
 
-/* Mobile-first: location input appears first on small screens */
+/* Hide Cloud and Pressure on mobile */
 @media (max-width: 768px) {
     .page-title { font-size: 1.4rem; }
     .main .block-container { padding: 0.4rem 0.5rem; }
+    .tab-row { flex-wrap: wrap; }
     .legend-strip { gap: 8px; font-size: 0.7rem; }
     .fc-table { font-size: 0.7rem; }
     .fc-table td { padding: 3px 3px; }
     .hide-mobile { display: none; }
-    /* Reorder: location section should be visually first */
-    div[data-testid="stVerticalBlock"] > div:first-child {
-        order: -1;
-    }
 }
 @media (max-width: 480px) {
     .page-title { font-size: 1.1rem; }
@@ -160,6 +181,14 @@ TERRAIN = {
     "Industrial / Port":{"alpha": 0.22, "factor": 1.10, "label": "Industrial"},
     "Urban / City":     {"alpha": 0.28, "factor": 1.20, "label": "Urban/City"},
     "Woodland / Forest":{"alpha": 0.20, "factor": 1.15, "label": "Woodland"},
+}
+
+# Weather models
+MODELS_LAND = {
+    "ECMWF":        {"endpoint": "ecmwf_ifs04",   "weight": 0.40, "label": "ECMWF IFS"},
+    "ICON":         {"endpoint": "icon_seamless",  "weight": 0.30, "label": "ICON"},
+    "GFS":          {"endpoint": "gfs_global",     "weight": 0.20, "label": "GFS"},
+    "MetOffice_UKV":{"endpoint": "ukmo_seamless",  "weight": 0.10, "label": "MetOffice UKV"},
 }
 
 SAVED_LOCS_FILE = "forecast_logs/saved_locations.json"
@@ -298,13 +327,14 @@ def save_location(name: str, lat: float, lon: float, crane_h: int, terrain: str)
         pass
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DATA FETCH — LAND (ECMWF IFS 0.25° direct)
+# DATA FETCH — LAND (ECMWF IFS 0.25° direct — no blending)
 # ══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_data(ttl=1800)
 def fetch_ecmwf_land(lat: float, lon: float, hours: int = 168):
     """
-    Fetch ECMWF IFS 0.25° directly from Open-Meteo.
+    Fetch ECMWF IFS 0.25° directly from Open-Meteo — no blending with weaker models.
+    ECMWF IFS is the best freely available global model, used by Met agencies worldwide.
     Uses list-of-tuples params so requests sends hourly=x&hourly=y correctly.
     """
     url = "https://api.open-meteo.com/v1/forecast"
@@ -313,8 +343,8 @@ def fetch_ecmwf_land(lat: float, lon: float, hours: int = 168):
         ("longitude",       lon),
         ("wind_speed_unit", "ms"),
         ("forecast_days",   min(hours // 24 + 1, 7)),
-        ("timezone",        "auto"),
-        ("models",          "ecmwf_ifs025"),
+        ("timezone",        "auto"),   # auto = local time at the coordinates
+        ("models",          "ecmwf_ifs025"),   # 0.25° ECMWF IFS — best free global
         ("hourly",          "wind_speed_10m"),
         ("hourly",          "wind_gusts_10m"),
         ("hourly",          "wind_direction_10m"),
@@ -349,12 +379,17 @@ def fetch_ecmwf_land(lat: float, lon: float, hours: int = 168):
             "visibility":  pd.to_numeric(h.get("visibility",           [np.nan]*n), errors="coerce"),
             "humidity":    pd.to_numeric(h.get("relative_humidity_2m", [np.nan]*n), errors="coerce"),
         })
+        # Filter to current hour onwards — naive comparison (API returns naive times)
         now = pd.Timestamp.now().floor("h")
         df = df[df["time"] >= now].reset_index(drop=True)
         return df, ["ECMWF IFS 0.25°"]
     except Exception as e:
         st.error(f"Fetch error: {e}")
         return None, []
+
+# Alias so the rest of main() doesn't need changing
+def fetch_consensus(lat: float, lon: float, hours: int):
+    return fetch_ecmwf_land(lat, lon, hours)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DATA FETCH — OFFSHORE (Open-Meteo Marine + Wind)
@@ -390,6 +425,7 @@ def fetch_offshore_wind(lat: float, lon: float, hours: int = 120):
             "pressure":   pd.to_numeric(h.get("pressure_msl", [np.nan] * len(times)), errors="coerce"),
         })
         
+        # Filter to current hour onwards
         now = pd.Timestamp.now().floor("h")
         df = df[df["time"] >= now].reset_index(drop=True)
         return df
@@ -426,6 +462,7 @@ def fetch_offshore_marine(lat: float, lon: float, hours: int = 120):
             "wind_wave_hs": pd.to_numeric(h.get("wind_wave_height", [np.nan] * len(times)), errors="coerce"),
         })
         
+        # Filter to current hour onwards
         now = pd.Timestamp.now().floor("h")
         df = df[df["time"] >= now].reset_index(drop=True)
         return df
@@ -456,6 +493,7 @@ def _wind_cells(ws_10, wg_10, ws_h, wg_h, unit):
         f'</td>'
     )
 
+# Temperature colour palette
 def _temp_colour(t: float) -> str:
     if   t <= -3: return "#1565C0","#fff"
     elif t <=  0: return "#1976D2","#fff"
@@ -503,6 +541,7 @@ def build_land_table_html(df: pd.DataFrame, crane_h: int, terrain: str,
         except:
             wd_f = np.nan
 
+        # Merge date and time into one column
         datetime_str = ts.strftime("%a %d %b %H:%M")
         day_break = " class='day-break'" if ts.strftime("%Y-%m-%d") != prev_day else ""
         prev_day = ts.strftime("%Y-%m-%d")
@@ -543,9 +582,11 @@ def build_offshore_table_html(wind_df, marine_df, crane_h, unit, temp_unit, hour
         cld  = safe_float(wrow.get("cloud"))
         prs  = safe_float(wrow.get("pressure"), 1013.0)
 
+        # Height correction (offshore: alpha=0.11 per IMCA)
         ws_h = ws * ((crane_h / 10) ** 0.11)
         wg_h = wg * ((crane_h / 10) ** 0.11)
 
+        # Marine data (if available)
         hs = wp = wd_wave = sw = "-"
         if marine_df is not None and i < marine_len:
             mrow   = marine_df.iloc[i]
@@ -567,6 +608,7 @@ def build_offshore_table_html(wind_df, marine_df, crane_h, unit, temp_unit, hour
         except:
             wd_f = np.nan
 
+        # Merge date and time into one column
         datetime_str = ts.strftime("%a %d %b %H:%M")
         day_break = " class='day-break'" if ts.strftime("%Y-%m-%d") != prev_day else ""
         prev_day = ts.strftime("%Y-%m-%d")
@@ -595,9 +637,11 @@ def render_table(rows: list, header_html: str, mode: str):
     """Render forecast table directly as st.markdown — with mobile hiding."""
     row_html = "\n".join(rows)
     
+    # Add hide-mobile class to cloud and pressure headers for offshore mode
     if mode == "offshore":
         header_html = header_html.replace('<th>Cloud</th>', '<th class="hide-mobile">Cloud</th>')
         header_html = header_html.replace('<th>Pressure</th>', '<th class="hide-mobile">Pressure</th>')
+        # Also modify the table rows to hide those columns on mobile
         row_html = row_html.replace('<td class="cloud-cell">', '<td class="cloud-cell hide-mobile">')
         row_html = row_html.replace('<td style="color:#aaa;">', '<td class="hide-mobile" style="color:#aaa;">')
     
@@ -669,313 +713,260 @@ def render_legend():
 </div>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# INFO PAGE CONTENT
+# INFO TAB RENDERER
 # ══════════════════════════════════════════════════════════════════════════════
 
-def render_info_page():
-    st.markdown('<div class="page-title" style="font-size:1.8rem;">About Windcast</div>', unsafe_allow_html=True)
-    
-    # About the Creator
-    with st.expander("👤 About the Creator", expanded=True):
-        st.markdown("""
-        I built Windcast between jobs, out of sheer frustration with the weather forecasts I was getting on site.
-        
-        I'm a lifting supervisor — not a software engineer. I've stood on too many crane decks watching the wind pick up while some generic forecast told me it was fine. Or worse, cancelled a lift based on a number from a weather station 20 miles away that had nothing to do with the wind at boom height.
-        
-        My wife is a UX designer. She watched me mutter at spreadsheets and API docs for weeks, then one night she sat down with me and asked: *"What would actually help you make a decision?"*
-        
-        That conversation turned this from a scrappy script into a real app. She forced me to think about colours, layout, and what a tired lifting supervisor needs to see in three seconds, not three minutes.
-        
-        Six months later, it's grown beyond anything I expected. Real crane operators are using it. I've had messages from offshore guys saying it saved them a wasted trip. That's why I keep building it.
-        
-        **I'm not selling anything. I just want the forecast to be right for once.**
-        """)
-    
-    # What It Does
-    with st.expander("🎯 What It Does", expanded=True):
-        st.markdown("""
-        **One sentence:** Windcast gives you a crane-height wind forecast, colour-coded to BS 7121-1:2016, using the best free weather model on the planet.
-        
-        - **ECMWF IFS** — the same model used by national meteorological agencies worldwide. Not some simplified phone widget.
-        - **Height correction** — adjusts 10m wind data to your actual crane hook height using power law (BS 7121-1:2016).
-        - **Colour-coded Go/No-Go** — SAFE (blue ●), CAUTION (orange ⬡), STOP (purple Ⓧ). You'll know in half a second.
-        - **LOLER-aware** — built for lifting supervisors, by a lifting supervisor. Not a software company.
-        - **Land + Offshore** — with wave height, swell, and period for marine lifts.
-        - **Completely free** — while the free API tier lasts. No ads, no data harvesting.
-        """)
-    
-    # How To Use
-    with st.expander("📋 How To Use", expanded=True):
-        st.markdown("""
-        1. **Enter your location** — UK postcode, place name, or decimal coordinates (e.g., `51.08 ; -1.29`). Press Enter or click Get Forecast.
-        
-        2. **Set your crane** — enter the hook height in metres. Choose terrain type (affects wind shear).
-        
-        3. **Read the table** — each row is one hour. The two wind columns show:
-           - Left: 10m reference (what most forecasts give you)
-           - Right: **Your crane height** (what actually matters)
-        
-        4. **Make the call** — the coloured symbol tells you the risk level at your hook height. Blue = go ahead but stay alert. Orange = caution, review your lift plan. Purple = STOP, do not lift.
-        
-        That's it. No login. No paywall. Just the forecast you actually need.
-        """)
-    
-    # Colour Legend (duplicate for Info page)
-    with st.expander("🎨 Colour Legend", expanded=True):
-        render_legend()
-        st.markdown("""
-        **Risk thresholds (gust speed at crane height):**
-        - **SAFE** (≤5.9 m/s / 11.5 knots / 13 mph) — normal operations with appropriate precautions
-        - **CAUTION** (6–14 m/s / 12–27 knots / 13–31 mph) — increased vigilance, consider limiting lift parameters
-        - **STOP** (>14 m/s / 27 knots / 31 mph) — do not lift per BS 7121-1:2016
-        
-        *These thresholds assume normal lifting conditions. Crane-specific limits and site procedures always take precedence.*
-        """)
-    
-    # Where's The Catch
-    with st.expander("💰 Where's The Catch?", expanded=True):
-        st.markdown("""
-        **No catch. But a few honest notes:**
-        
-        The free Open-Meteo API tier limits full ECMWF IFS data to the first 6 hours of the forecast. Beyond that, it falls back to a blend of models. I'm working on upgrading to a paid tier that gives full ECMWF for the entire 7-day forecast.
-        
-        **If you find Windcast useful and want to help:**
-        
-        [![Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/yourusername)
-        
-        As soon as tips cover the monthly API cost (~$50), everyone on the email list gets notified and the full ECMWF forecast is unlocked for all users.
-        
-        **No pressure, no paywall, no tracking.** Just an honest request from one lifting supervisor to another.
-        """)
-    
-    # Email signup placeholder
-    with st.expander("📧 Get notified when full ECMWF is unlocked", expanded=False):
-        st.markdown("""
-        Drop your email here (no spam, ever — just one email when the paid API is live):
-        """)
-        email = st.text_input("Email address", key="info_email", placeholder="crane.op@example.com")
-        if st.button("Notify Me", key="notify_btn"):
-            st.success("Thanks! You'll hear from me when the full forecast is unlocked.")
-            # In production, this would send to a mailing list
-    
-    # Version & Changelog
-    with st.expander("📦 Version & Changelog", expanded=False):
-        st.markdown("""
-        **Current version: v4.0 — April 2026**
-        
-        **What's new:**
-        - v4.0: Full info page, disclaimer checkbox, shareable location URLs, Ko-fi button, mobile layout improvements
-        - v3.1: Added swell Hs, visibility, air and sea temperature, combined Go/No-Go across all parameters
-        - v3.0: Offshore mode with wave height, period, and direction
-        - v2.5: Height correction for terrain types (open/coastal, industrial, urban, woodland)
-        - v2.0: BS 7121-1:2016 colour-coded risk levels
-        - v1.0: Initial release — ECMWF IFS forecast for land operations
-        """)
-    
-    # Feedback link
-    st.markdown("---")
-    st.markdown("📝 [Found an error or have a suggestion? Tell me](https://forms.google.com/your-feedback-form-url) — I read every message.")
+FEEDBACK_URL = "https://forms.gle/REPLACE_WITH_YOUR_FORM_URL"
+KOFI_URL     = "https://ko-fi.com/windcast"
 
-# ══════════════════════════════════════════════════════════════════════════════
-# DISCLAIMER ACKNOWLEDGEMENT
-# ══════════════════════════════════════════════════════════════════════════════
+def render_info_tab():
+    st.markdown("""
+<style>
+.info-section { margin: 1.2rem 0 0.4rem 0; }
+.info-section h3 { color: #90CAF9; font-size: 1.1rem; border-bottom: 1px solid #1565C0;
+    padding-bottom: 0.3rem; margin-bottom: 0.6rem; }
+.info-section p, .info-section li { color: #ccc; font-size: 0.88rem; line-height: 1.6; }
+.info-section ul { padding-left: 1.2rem; }
+.info-section ol { padding-left: 1.2rem; }
+.info-section li { margin-bottom: 0.3rem; }
+.info-badge { display:inline-block; background:#1a2a3a; border:1px solid #1565C0;
+    border-radius:5px; padding:3px 9px; font-size:0.78rem; color:#90CAF9; margin:2px 3px; }
+</style>
+""", unsafe_allow_html=True)
 
-def check_disclaimer_acknowledged():
-    """Check if user has acknowledged the disclaimer. Show modal if not."""
-    if "disclaimer_acknowledged" not in st.session_state:
-        st.session_state.disclaimer_acknowledged = False
-    
-    if not st.session_state.disclaimer_acknowledged:
-        with st.container():
-            st.markdown('<div class="box-warning">', unsafe_allow_html=True)
-            st.warning("⚠️ **LEGAL DISCLAIMER**")
-            st.markdown("""
-            This forecast is generated from public weather data and is for **planning purposes only**.
-            
-            Actual site conditions may differ significantly due to local topography, equipment, and microclimates.
-            
-            **I understand that:**  
-            - This forecast does not replace a calibrated on-site anemometer  
-            - I will verify conditions before commencing any lifting operation  
-            - The lifting supervisor retains full Go/No-Go responsibility per BS 7121-1:2016 and LOLER 1998
-            """)
-            ack = st.checkbox("I acknowledge and agree to verify conditions with on-site equipment before lifting")
-            if ack:
-                if st.button("Continue to Forecast", type="primary"):
-                    st.session_state.disclaimer_acknowledged = True
-                    st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-            st.stop()
-    
-    return True
+    # ── About the Creator ──────────────────────────────────────────────────────
+    st.markdown("""<div class="info-section">
+<h3>👤 About the Creator</h3>
+<p>
+I built Windcast between jobs, out of sheer frustration.
+</p>
+<p>
+You know how it is on site — you're trying to make a Go/No-Go call, you check the weather, and XCWeather gives you something that bears no resemblance to what the anemometer on the hook block is reading.
+I'd been complaining about this for years, but it was my wife (a UX designer) who finally said: <em>"You clearly know what's wrong with these tools — so build a better one."</em>
+</p>
+<p>
+I had no idea it would turn into this. What started as a quick Python script I used for my own lift plans has, six months later, grown into something I'm genuinely proud of. The accuracy against real site conditions has been consistent enough that I've stopped second-guessing it. That's when I knew it was worth sharing.
+</p>
+<p>
+If you work in cranes, MEWPs, or marine lifting — this was built by someone who's sat in the same chair you're sitting in. I hope it helps.
+</p>
+</div>""", unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ══════════════════════════════════════════════════════════════════════════════
+    # ── What It Does ──────────────────────────────────────────────────────────
+    st.markdown("""<div class="info-section">
+<h3>🎯 What It Does</h3>
+<p><strong>Windcast gives lifting supervisors an accurate, height-corrected wind forecast — colour-coded for Go/No-Go — built to BS 7121 standards, not generic weather websites.</strong></p>
+<ul>
+<li>🌍 <strong>ECMWF IFS 0.25°</strong> — the same model used by professional meteorological agencies worldwide</li>
+<li>📐 <strong>BS 7121 height correction</strong> — wind speed calculated at your actual crane height using the power law, adjusted for terrain roughness</li>
+<li>🟢🟡🔴 <strong>Colour-coded Go/No-Go</strong> — safe, caution, and stop thresholds displayed at a glance</li>
+<li>⚖️ <strong>LOLER-aware</strong> — built with the Lifting Operations and Lifting Equipment Regulations 1998 in mind</li>
+<li>🧰 <strong>Built by a lifting supervisor</strong> — not a software company. The assumptions, thresholds, and corrections are based on site experience, not guesswork</li>
+<li>⚓ <strong>Offshore mode</strong> — includes wave height (Hs), swell, wave period, and IMCA LR006 height correction (α = 0.11)</li>
+</ul>
+</div>""", unsafe_allow_html=True)
 
-def render_sidebar():
-    with st.sidebar:
-        st.markdown("## 🐝️ Windcast")
-        st.markdown("*Lifting Ops Weather*")
-        st.markdown("---")
-        
-        # Ko-fi button
-        st.markdown("""
-        <div style="text-align: center; margin: 10px 0;">
-            <a href="https://ko-fi.com/yourusername" target="_blank">
-                <img src="https://cdn.ko-fi.com/cdn/kofi3.png?v=3" alt="Support on Ko-fi" 
-                     style="height: 36px; border-radius: 8px;">
-            </a>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("---")
-        
-        # Quick settings
-        st.markdown("### ⚙️ Quick Settings")
-        
-        # Mode selector
-        mode = st.radio("Operation Type", ["Land", "Offshore"], horizontal=True, key="sidebar_mode")
-        st.session_state.mode = mode.lower()
-        
-        # Crane height
-        crane_h = st.number_input("Crane height (m)", min_value=10, max_value=250,
-                                  value=st.session_state.get("crane_h", 40), step=5,
-                                  key="sidebar_crane")
-        st.session_state.crane_h = crane_h
-        
-        # Wind units
-        wind_unit = st.selectbox("Wind units", list(WIND_UNIT_FACTORS.keys()), 
-                                key="sidebar_wind_unit")
-        st.session_state.wind_unit = wind_unit
-        
-        # Temp units
-        temp_unit = st.selectbox("Temperature", ["°C", "°F"], key="sidebar_temp_unit")
-        st.session_state.temp_unit = temp_unit
-        
-        st.markdown("---")
-        
-        # Feedback link
-        st.markdown("📝 [Report an error](https://forms.google.com/your-feedback-form-url)")
-        
-        # Debug expander (collapsed by default)
-        with st.expander("⚙️ Advanced — Model Selection"):
-            st.markdown("""
-            **ECMWF IFS 0.25°** is the default and recommended model.
-            
-            It's the same model used by national meteorological agencies worldwide.
-            
-            No other models are currently enabled to ensure forecast consistency.
-            """)
-            st.info("Full ECMWF IFS forecast is active for the first 6 hours. Beyond that, Open-Meteo blends with other models.")
-        
-        st.markdown("---")
-        st.caption("v4.0 | BS 7121-1:2016 | LOLER 1998")
+    # ── How To Use ────────────────────────────────────────────────────────────
+    st.markdown("""<div class="info-section">
+<h3>📋 How To Use</h3>
+<ol>
+<li><strong>Enter your location</strong> — type a UK postcode (e.g. <code>SE1 7PB</code>), a place name, or latitude/longitude separated by a semicolon (<code>51.50 ; -0.12</code>). The app will resolve the location automatically.</li>
+<li><strong>Set crane height and terrain</strong> — enter the maximum hook height in metres. Choose the terrain type that best describes your site (open, industrial, urban, or woodland). This drives the BS 7121 power-law correction.</li>
+<li><strong>Click Get Forecast</strong> — the table loads with hourly wind speeds and gusts at both 10m reference height and your crane height.</li>
+<li><strong>Read the colour-coded table</strong> — each row is an hour. The risk symbol in the crane-height column tells you the status at a glance. Green circle = safe, amber hexagon = caution, red Ⓧ = stop work.</li>
+<li><strong>Use the Go/No-Go column for your lift plan</strong> — this is planning data, not a substitute for your on-site anemometer. Always verify with a calibrated instrument before commencing.</li>
+</ol>
+<p>Switch between <strong>Land</strong> and <strong>Sea</strong> modes using the toggle in the forecast header. Use the day buttons (1 / 3 / 7) to extend or narrow the forecast window.</p>
+</div>""", unsafe_allow_html=True)
+
+    # ── Colour Legend ─────────────────────────────────────────────────────────
+    st.markdown("""<div class="info-section">
+<h3>🎨 Colour Legend</h3>
+<p>Wind risk is assessed by <strong>gust speed at crane height</strong>, corrected for terrain:</p>
+</div>""", unsafe_allow_html=True)
+    st.markdown("""
+<div class="legend-strip" style="margin:0.5rem 0 0.8rem 0; font-size:0.85rem; gap:18px;">
+  <span class="leg-item"><span class="ci-safe" style="font-size:1.4em;">●</span>&nbsp;<strong>SAFE</strong> — Gust ≤ 5.9 m/s (≤ 11.5 kt). Proceed with lift plan.</span>
+  <span class="leg-item"><span class="ci-caution" style="font-size:1.3em;">⬡</span>&nbsp;<strong>CAUTION</strong> — Gust 6–14 m/s (11.6–27 kt). Enhanced monitoring required. Review lift plan against crane wind rating.</span>
+  <span class="leg-item"><span class="ci-danger" style="font-size:1.3em;">Ⓧ</span>&nbsp;<strong>STOP</strong> — Gust > 14 m/s (> 27 kt). Do not commence lifting operations.</span>
+</div>""", unsafe_allow_html=True)
+    st.markdown("""<div class="info-section">
+<p style="font-size:0.78rem; color:#888;">Thresholds are based on BS 7121-1:2016 and HSE PM55 general guidance. Your specific crane manual may impose lower limits — always apply the more conservative figure.</p>
+</div>""", unsafe_allow_html=True)
+
+    # ── Where's The Catch ─────────────────────────────────────────────────────
+    st.markdown("""<div class="info-section">
+<h3>🪤 Where's The Catch?</h3>
+<p>
+There isn't a hidden one, but here's the honest picture:
+</p>
+<ul>
+<li><strong>Free API limitation:</strong> The Open-Meteo free tier gives full ECMWF IFS resolution for the first 7 days, but the raw ECMWF data is updated every 6 hours. The free tier doesn't include the commercial ECMWF API with real-time sub-hourly updates. For planning purposes — which is what this is for — that's absolutely fine.</li>
+<li><strong>This is not a replacement for your anemometer.</strong> It never will be. It's a planning tool, not a real-time measurement instrument.</li>
+<li><strong>Funding:</strong> Running this costs time and, if I move to a paid API tier, money. If Windcast has saved you a wasted mobilisation or helped you make a better call, a small Ko-fi tip helps keep it online and improving.</li>
+</ul>
+<p><strong>Email list:</strong> If you'd like to be notified personally the moment tips cover the cost of the paid ECMWF API (which would unlock more frequent forecast updates), drop your email in the feedback form and mention it. I'll contact everyone individually — no mailing list software, no spam.</p>
+</div>""", unsafe_allow_html=True)
+
+    # Ko-fi button
+    st.markdown(f"""
+<div style="margin: 0.8rem 0;">
+<a href="{KOFI_URL}" target="_blank" style="
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #FF5E5B; color: #fff; font-weight: 700; font-size: 0.9rem;
+    padding: 9px 18px; border-radius: 7px; text-decoration: none;
+    box-shadow: 0 2px 6px rgba(255,94,91,0.4);">
+    ☕ Support Windcast on Ko-fi
+</a>
+</div>""", unsafe_allow_html=True)
+
+    # ── Version & Changelog ────────────────────────────────────────────────────
+    st.markdown("""<div class="info-section">
+<h3>📦 Version & Changelog</h3>
+<p><span class="info-badge">v4.0 — Current</span></p>
+<ul>
+<li><strong>v4.0 — April 2026:</strong> Added tabs (Forecast / Info), disclaimer acknowledgement, shareable URL, Ko-fi support, feedback link, mobile-first location input, advanced model selection expander.</li>
+<li><strong>v3.1 — March 2026:</strong> Merged land and offshore into single app. Added combined Go/No-Go across all parameters.</li>
+<li><strong>v2.1 — February 2026:</strong> Added swell Hs, visibility, air and sea temperature. Switched to ECMWF-only model (removed blended consensus) for safety-critical accuracy.</li>
+<li><strong>v1.0 — October 2025:</strong> Initial release. ECMWF + ICON + GFS consensus, BS 7121 height correction, colour-coded wind table.</li>
+</ul>
+</div>""", unsafe_allow_html=True)
+
+    # ── Feedback ──────────────────────────────────────────────────────────────
+    st.markdown(f"""
+<div style="margin-top: 1.5rem; padding: 0.6rem 0.8rem; background: #0d0d1a;
+    border: 1px solid #333; border-radius: 5px; font-size: 0.8rem; color: #888;">
+📝 <a href="{FEEDBACK_URL}" target="_blank" style="color:#90CAF9;">Found an error or want to suggest something? Tell me here.</a>
+</div>""", unsafe_allow_html=True)
+
+    # Regulatory footer
+    st.markdown("""<div class="disclaimer" style="margin-top: 1rem;">
+⚠️ <b>FOR PLANNING PURPOSES ONLY.</b> Does not replace a calibrated on-site anemometer.
+Lifting supervisor retains full Go / No-Go responsibility per <b>BS 7121-1:2016</b>,
+<b>LOLER 1998</b>, <b>HSE PM55</b> and <b>IMCA LR006</b>.
+Data: ECMWF IFS 0.25° via Open-Meteo (free tier). v4.0
+</div>""", unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    # ── Session defaults ──────────────────────────────────────────────────────
-    for k, v in [("mode","land"),("crane_h",40),("lat",None),("lon",None),
-                 ("loc_name",""),("fdays",1),("wind_unit","m/s"),
-                 ("temp_unit","°C"),("terrain","Open / Coastal")]:
+    # ── Session defaults — disclaimer_ack MUST be first to avoid KeyError ─────
+    if "disclaimer_ack" not in st.session_state:
+        st.session_state["disclaimer_ack"] = False
+    for k, v in [("mode","land"),("crane_h",40),("lat",None),("lon",None),("loc_name",""),("fdays",1)]:
         if k not in st.session_state:
             st.session_state[k] = v
-    
-    # Read query params for location sharing
-    query_params = st.query_params
-    if "lat" in query_params and "lon" in query_params:
+
+    # ── Read shareable URL params on first load ────────────────────────────────
+    params = st.query_params
+    if st.session_state.lat is None and "lat" in params and "lon" in params:
         try:
-            lat_q = float(query_params["lat"])
-            lon_q = float(query_params["lon"])
-            if st.session_state.lat is None:
-                st.session_state.lat = lat_q
-                st.session_state.lon = lon_q
-                st.session_state.loc_name = f"{lat_q:.4f}°N, {lon_q:.4f}°E"
-        except (ValueError, TypeError):
+            st.session_state.lat      = float(params["lat"])
+            st.session_state.lon      = float(params["lon"])
+            st.session_state.loc_name = f"{st.session_state.lat:.4f}°N, {st.session_state.lon:.4f}°E"
+            if "h" in params:
+                st.session_state.crane_h = max(10, min(250, int(params["h"])))
+            if "mode" in params and params["mode"] in ("land","offshore"):
+                st.session_state.mode = params["mode"]
+        except Exception:
             pass
-    
-    # Disclaimer check (must happen before any forecast loads)
-    check_disclaimer_acknowledged()
-    
-    # Render sidebar
-    render_sidebar()
-    
+
     mode = st.session_state.mode
-    wind_unit = st.session_state.wind_unit
-    temp_unit = st.session_state.temp_unit
-    crane_h = st.session_state.crane_h
-    
-    # ── Tabs for Forecast / Info ──────────────────────────────────────────────
-    tab1, tab2 = st.tabs(["🌤️ Forecast", "ℹ️ Info"])
-    
-    with tab1:
-        # ══════════════════════════════════════════════════════════════════════
-        # PAGE TITLE
-        # ══════════════════════════════════════════════════════════════════════
-        st.markdown('<div class="page-title">Lifting Ops Forecast</div>', unsafe_allow_html=True)
 
-        # ══════════════════════════════════════════════════════════════════════
-        # CONTROLS ROW (Location first on mobile)
-        # ══════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════════
+    # PAGE TITLE
+    # ══════════════════════════════════════════════════════════════════════════
+    st.markdown('<div class="page-title">Lifting Ops Forecast</div>', unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # DISCLAIMER — shown once per session before any forecast content loads
+    # ══════════════════════════════════════════════════════════════════════════
+    if not st.session_state.disclaimer_ack:
+        st.warning(
+            "⚠️ **Planning Tool — Regulatory Notice**\n\n"
+            "Windcast provides forecast data for lift planning purposes only. "
+            "It does **not** replace a calibrated on-site anemometer. "
+            "The lifting supervisor remains solely responsible for all Go/No-Go decisions "
+            "under **BS 7121-1:2016**, **LOLER 1998**, and **HSE PM55**. "
+            "Always verify conditions with a calibrated instrument before commencing any lifting operation."
+        )
+        ack = st.checkbox(
+            "I understand this forecast is for planning purposes only. "
+            "I will verify conditions with a calibrated on-site anemometer before commencing any lifting operation.",
+            key="disclaimer_checkbox",
+        )
+        if ack:
+            st.session_state.disclaimer_ack = True
+            st.rerun()
+        st.stop()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TOP-LEVEL TABS
+    # ══════════════════════════════════════════════════════════════════════════
+    tab_forecast, tab_info = st.tabs(["🌤️ Forecast", "ℹ️ Info"])
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # FORECAST TAB
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab_forecast:
+
+        # ── Controls row — location FIRST so it stacks on top on mobile ───────
+        # Row A: Location (wide) | Save pin | Fetch button
         if mode == "land":
-            c1,c2,c3,c4,c5,c6,c7 = st.columns([1.0, 3.2, 0.55, 1.7, 1.1, 0.8, 1.5])
+            ra = st.columns([3.2, 0.55, 1.0, 1.7, 1.1, 0.8, 1.5])
         else:
-            c1,c2,c3,c4,c5,c6 = st.columns([1.0, 3.2, 0.55, 1.1, 0.8, 1.5])
+            ra = st.columns([3.2, 0.55, 1.0, 1.1, 0.8, 1.5])
 
-        with c1:
-            crane_h_input = st.number_input("Crane height (m)", min_value=10, max_value=250,
-                                       value=crane_h, step=5, key="crane_num")
-            st.session_state.crane_h = crane_h_input
-
-        with c2:
+        with ra[0]:
             search_val = st.text_input(
                 "Location",
                 value=st.session_state.loc_name if st.session_state.lat else "",
                 placeholder="Postcode · Place name · lat ; lon",
                 key="search_input",
             )
-            st.markdown('<div class="coord-hint">Lat (°N) ; Lon (°E)</div>', unsafe_allow_html=True)
+            st.markdown('<div class="coord-hint">Lat (°N) ; Lon (°E) — or enter UK postcode / place name</div>',
+                        unsafe_allow_html=True)
 
-        with c3:
+        with ra[1]:
             st.markdown('<div style="height:1.65rem"></div>', unsafe_allow_html=True)
             save_btn = st.button("📌", use_container_width=True, key="save_btn", help="Save this site")
 
+        with ra[2]:
+            crane_h = st.number_input("Height (m)", min_value=10, max_value=250,
+                                       value=st.session_state.crane_h, step=5, key="crane_num")
+            st.session_state.crane_h = crane_h
+
         if mode == "land":
-            with c4:
+            with ra[3]:
                 terrain = st.selectbox("Terrain type", list(TERRAIN.keys()), key="terrain",
                                        help="Affects wind shear height correction (~10–20%)")
-                st.session_state.terrain = terrain
-            with c5:
-                wind_unit_sel = st.selectbox("Wind speed units", list(WIND_UNIT_FACTORS.keys()), key="wind_unit_sel")
-                st.session_state.wind_unit = wind_unit_sel
-            with c6:
-                temp_unit_sel = st.selectbox("Temp units", ["°C", "°F"], key="temp_unit_sel")
-                st.session_state.temp_unit = temp_unit_sel
-            with c7:
+            with ra[4]:
+                wind_unit = st.selectbox("Wind units", list(WIND_UNIT_FACTORS.keys()), key="wind_unit")
+            with ra[5]:
+                temp_unit = st.selectbox("Temp", ["°C", "°F"], key="temp_unit")
+            with ra[6]:
                 st.markdown('<div style="height:1.65rem"></div>', unsafe_allow_html=True)
                 fetch_btn = st.button("🌤️ Get Forecast", use_container_width=True,
                                        type="primary", key="fetch_btn")
         else:
             terrain = "Open / Coastal"
-            with c4:
-                wind_unit_sel = st.selectbox("Wind speed units", list(WIND_UNIT_FACTORS.keys()), key="wind_unit_sel")
-                st.session_state.wind_unit = wind_unit_sel
-            with c5:
-                temp_unit_sel = st.selectbox("Temp units", ["°C", "°F"], key="temp_unit_sel")
-                st.session_state.temp_unit = temp_unit_sel
-            with c6:
+            with ra[3]:
+                wind_unit = st.selectbox("Wind units", list(WIND_UNIT_FACTORS.keys()), key="wind_unit")
+            with ra[4]:
+                temp_unit = st.selectbox("Temp", ["°C", "°F"], key="temp_unit")
+            with ra[5]:
                 st.markdown('<div style="height:1.65rem"></div>', unsafe_allow_html=True)
                 fetch_btn = st.button("🌤️ Get Forecast", use_container_width=True,
                                        type="primary", key="fetch_btn")
 
         st.markdown('<hr style="border-color:#222;margin:0.5rem 0 0 0;">', unsafe_allow_html=True)
 
-        # ── Resolve location ──────────────────────────────────────────────────────
-        lat = st.session_state.lat
-        lon = st.session_state.lon
+        # ── Resolve location ──────────────────────────────────────────────────
+        lat      = st.session_state.lat
+        lon      = st.session_state.lon
         loc_name = st.session_state.loc_name
 
         if search_val and (search_val != loc_name or lat is None):
@@ -983,10 +974,9 @@ def main():
                 lat_new, lon_new, name_new = parse_search(search_val)
             if lat_new:
                 lat = lat_new; lon = lon_new; loc_name = name_new
-                st.session_state.lat = lat; st.session_state.lon = lon
+                st.session_state.lat      = lat
+                st.session_state.lon      = lon
                 st.session_state.loc_name = loc_name
-                # Update URL query params for sharing
-                st.query_params.update({"lat": f"{lat:.4f}", "lon": f"{lon:.4f}"})
             else:
                 st.error("Location not found. Try a UK postcode, place name, or 'lat ; lon'.")
                 st.stop()
@@ -995,7 +985,7 @@ def main():
             save_location(loc_name[:40], lat, lon, crane_h, terrain)
             st.success(f"✅ Saved: {loc_name[:40]}")
 
-        # ── Saved locations row ───────────────────────────────────────────────────
+        # ── Saved locations row ───────────────────────────────────────────────
         saved = load_saved()
         if saved:
             saved_names = [l["name"] for l in saved]
@@ -1007,11 +997,8 @@ def main():
                 st.session_state.lon      = loc["lon"]
                 st.session_state.loc_name = loc["name"]
                 st.session_state.crane_h  = loc.get("crane_h", crane_h)
-                # Update URL
-                st.query_params.update({"lat": f"{loc['lat']:.4f}", "lon": f"{loc['lon']:.4f}"})
-                st.rerun()
 
-        # ── Fetch ─────────────────────────────────────────────────────────────────
+        # ── Fetch ─────────────────────────────────────────────────────────────
         if lat is None:
             st.markdown(
                 '<div class="box-info" style="margin-top:1rem;">👆 Enter a location above and click <b>Get Forecast</b>.<br>'
@@ -1025,6 +1012,10 @@ def main():
             st.stop()
 
         if fetch_btn:
+            # Update shareable URL query params
+            st.query_params.update({"lat": f"{lat:.4f}", "lon": f"{lon:.4f}",
+                                    "h": str(crane_h), "mode": mode})
+            # Clear cached data so fresh fetch happens
             fetch_ecmwf_land.clear()
             fetch_offshore_wind.clear()
             fetch_offshore_marine.clear()
@@ -1034,9 +1025,9 @@ def main():
         if fetch_btn or ("df_cache" not in st.session_state):
             if mode == "land":
                 with st.spinner("Fetching ECMWF IFS forecast…"):
-                    df, models_used = fetch_ecmwf_land(lat, lon, 168)
+                    df, models_used = fetch_consensus(lat, lon, 168)
                 if df is None or df.empty:
-                    st.error("Failed to fetch forecast. Check your internet connection and try again.")
+                    st.error("All weather models failed to respond. Check your internet connection and try again.")
                     st.stop()
                 st.session_state.df_cache      = df
                 st.session_state.models_used   = models_used
@@ -1052,29 +1043,29 @@ def main():
                 st.session_state.marine_cache = marine
             st.session_state.fetch_time = datetime.now(timezone.utc)
 
-        df     = st.session_state.get("df_cache")
-        marine = st.session_state.get("marine_cache")
+        df      = st.session_state.get("df_cache")
+        marine  = st.session_state.get("marine_cache")
         fetch_t = st.session_state.get("fetch_time", datetime.now(timezone.utc))
 
         if df is None or df.empty:
             st.error("No forecast data retrieved — check connection or try a different location.")
             st.stop()
 
-        # ══════════════════════════════════════════════════════════════════════════
+        # ══════════════════════════════════════════════════════════════════════
         # FORECAST SECTION HEADER
-        # ══════════════════════════════════════════════════════════════════════════
+        # ══════════════════════════════════════════════════════════════════════
         DAY_OPTIONS = {1: 24, 3: 72, 7: 168}
         forecast_hours = DAY_OPTIONS[st.session_state.fdays]
 
         hc = st.columns([1.4, 0.6, 0.6, 0.6, 3.5, 0.8, 0.8, 0.7, 0.7])
 
         with hc[0]:
-            st.markdown('<div style="font-size:1.5rem;margin:0.5rem 0 0 0;">Forecast</div>',
+            st.markdown('<div class="page-title" style="font-size:1.5rem;margin:0.5rem 0 0 0;">Forecast</div>',
                         unsafe_allow_html=True)
 
         for i, (days, hrs) in enumerate(DAY_OPTIONS.items()):
             with hc[i + 1]:
-                label = f"{days} day" if days == 1 else f"{days} days"
+                label    = f"{days} day" if days == 1 else f"{days} days"
                 btn_type = "primary" if st.session_state.fdays == days else "secondary"
                 st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
                 if st.button(label, key=f"day_{days}", type=btn_type, use_container_width=True):
@@ -1100,7 +1091,7 @@ def main():
                     st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
 
-        # ── Build table rows ──────────────────────────────────────────────────────
+        # ── Build table rows ──────────────────────────────────────────────────
         if mode == "land":
             rows = build_land_table_html(df, crane_h, terrain, wind_unit, temp_unit, forecast_hours)
             hdr  = land_header(crane_h)
@@ -1108,11 +1099,11 @@ def main():
             rows = build_offshore_table_html(df, marine, crane_h, wind_unit, temp_unit, forecast_hours)
             hdr  = offshore_header(crane_h)
 
-        # ── PDF download ──────────────────────────────────────────────────────────
+        # ── PDF download ──────────────────────────────────────────────────────
         with hc[7]:
             st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
             try:
-                import weasyprint
+                import weasyprint, io
                 pdf_css_extra = """
                 @page { margin:10mm; size:A4 landscape; }
                 body { background:#0d0d1a; color:#ddd; font-family:Arial,sans-serif; font-size:8pt; }
@@ -1128,10 +1119,10 @@ def main():
                 td.hcr { background:#004d40; }
                 .ci-safe { color:#1E88E5; } .ci-caution { color:#FB8C00; } .ci-danger { color:#8E24AA; }
                 """
-                row_html_str = "\n".join(rows)
+                row_html_str   = "\n".join(rows)
                 table_html_full = (
                     f'<table><thead>{hdr}</thead>'
-                    f'<tbody>{row_html_str}</tbody></td>'
+                    f'<tbody>{row_html_str}</tbody></table>'
                 )
                 pdf_html = f"""<!DOCTYPE html><html><head>
                 <meta charset="utf-8">
@@ -1156,48 +1147,83 @@ def main():
                           help="Install weasyprint to enable PDF export")
             st.markdown('</div>', unsafe_allow_html=True)
 
-        # ── Share button ──────────────────────────────────────────────────────────
+        # ── Share button ──────────────────────────────────────────────────────
         with hc[8]:
             st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
-            share_url = f"?lat={lat:.4f}&lon={lon:.4f}"
             st.button("🔗 Share", use_container_width=True, key="share_btn",
-                      help=f"Share this location: {lat:.4f}°N, {lon:.4f}°E")
+                      help=f"URL updated with lat/lon — copy from address bar: {lat:.4f}°N, {lon:.4f}°E")
             st.markdown('</div>', unsafe_allow_html=True)
 
-        # ── Location + last updated line ──────────────────────────────────────────
+        # ── Location + last updated line ──────────────────────────────────────
         updated_str = fetch_t.strftime("%H:%M") if fetch_t else "--:--"
-        mode_src = "ECMWF IFS 0.25°" if mode == "land" else "ECMWF Marine"
+        mode_src    = "ECMWF IFS 0.25°" if mode == "land" else "ECMWF Marine"
         st.markdown(
             f'<div class="info-line">Location: <b>{loc_name}</b> &nbsp;|&nbsp; '
             f'Last updated {updated_str}  ·  {mode_src}</div>',
             unsafe_allow_html=True
         )
 
-        # ── Legend ────────────────────────────────────────────────────────────────
+        # ── Legend ────────────────────────────────────────────────────────────
         render_legend()
 
-        # ── Offshore special warnings ─────────────────────────────────────────────
+        # ── Offshore special warnings ─────────────────────────────────────────
         if mode == "offshore" and marine is not None and not marine.empty and len(marine) > 0:
             hs_now = safe_float(marine.iloc[0].get("hs"))
             if hs_now >= 2.5:
-                wlvl  = "DANGER" if hs_now >= 4.0 else "CAUTION"
+                wlvl   = "DANGER" if hs_now >= 4.0 else "CAUTION"
                 bclass = "box-danger" if wlvl == "DANGER" else "box-caution"
-                st.markdown(f'<div class="{bclass}">⚓ <b>Wave Height Warning:</b> Hs = {hs_now:.2f}m — {wlvl}. Review vessel motion limits.</div>',
-                            unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="{bclass}">⚓ <b>Wave Height Warning:</b> Hs = {hs_now:.2f}m — {wlvl}. '
+                    f'Review vessel motion limits.</div>',
+                    unsafe_allow_html=True
+                )
 
-        # ── Forecast table — renders inline, page scrolls naturally ──────────────
+        # ── Forecast table ────────────────────────────────────────────────────
         render_table(rows, hdr, mode)
 
-        # ── Disclaimer ────────────────────────────────────────────────────────────
+        # ── Regulatory disclaimer footer ──────────────────────────────────────
         st.markdown("""<div class="disclaimer">
 ⚠️ <b>FOR PLANNING PURPOSES ONLY.</b> Does not replace a calibrated on-site anemometer.
 Lifting supervisor retains full Go / No-Go responsibility per <b>BS 7121-1:2016</b>,
 <b>LOLER 1998</b>, <b>HSE PM55</b> and <b>IMCA LR006</b>.
 Data: ECMWF IFS 0.25° via Open-Meteo (free tier). v4.0
 </div>""", unsafe_allow_html=True)
-    
-    with tab2:
-        render_info_page()
+
+        # ── Feedback link ─────────────────────────────────────────────────────
+        st.markdown(
+            f'<div style="margin-top:0.5rem; font-size:0.78rem; color:#555;">'
+            f'📝 <a href="{FEEDBACK_URL}" target="_blank" style="color:#666;">Found an error? Tell me.</a>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # ── Advanced: Model Selection — collapsed at the very bottom ──────────
+        models_used = st.session_state.get("models_used", ["ECMWF Marine" if mode == "offshore" else "?"])
+        with st.expander("⚙️ Advanced — Model Selection", expanded=False):
+            st.markdown("""
+**Current model:** ECMWF IFS 0.25° (single-model, direct from Open-Meteo)
+
+Windcast uses ECMWF IFS exclusively — no blending with lower-resolution models.
+ECMWF is the highest-accuracy freely available global model and is used as the reference
+standard by meteorological agencies worldwide.
+
+Earlier versions blended ECMWF, ICON, GFS and MetOffice UKV with weighted consensus.
+After six months of site validation, the single-ECMWF approach consistently outperformed blending.
+The blended option may return in a future release as a toggle for advanced users.
+""")
+            st.write(f"**Active models this session:** {models_used}")
+            if df is not None and not df.empty:
+                first = df.iloc[0]
+                st.write({c: round(float(first[c]), 2) if pd.notna(first.get(c)) else "NaN"
+                          for c in ["wind_speed", "wind_gust", "temperature", "pressure", "cloud", "precip"]
+                          if c in df.columns})
+                st.dataframe(df.head(4))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # INFO TAB
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab_info:
+        render_info_tab()
 
 
 if __name__ == "__main__":
