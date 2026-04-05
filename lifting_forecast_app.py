@@ -882,27 +882,7 @@ def main():
     st.markdown('<div class="page-title">Lifting Ops Forecast</div>', unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # DISCLAIMER — shown once per session before any forecast content loads
-    # ══════════════════════════════════════════════════════════════════════════
-    if not st.session_state.disclaimer_ack:
-        st.warning(
-            "⚠️ **Planning Tool — Regulatory Notice**\n\n"
-            "Windcast provides forecast data for lift planning purposes only. "
-            "It does **not** replace a calibrated on-site anemometer. "
-            "The lifting supervisor remains solely responsible for all Go/No-Go decisions "
-            "under **BS 7121-1:2016**, **LOLER 1998**, and **HSE PM55**. "
-            "Always verify conditions with a calibrated instrument before commencing any lifting operation."
-        )
-        ack = st.checkbox(
-            "I understand this forecast is for planning purposes only. "
-            "I will verify conditions with a calibrated on-site anemometer before commencing any lifting operation.",
-            key="disclaimer_checkbox",
-        )
-        if ack:
-            st.session_state.disclaimer_ack = True
-            st.rerun()
-        st.stop()
-
+    
     # ══════════════════════════════════════════════════════════════════════════
     # TOP-LEVEL TABS
     # ══════════════════════════════════════════════════════════════════════════
