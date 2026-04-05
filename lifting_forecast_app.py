@@ -716,7 +716,7 @@ def render_legend():
 # INFO TAB RENDERER
 # ══════════════════════════════════════════════════════════════════════════════
 
-FEEDBACK_URL = "https://forms.gle/REPLACE_WITH_YOUR_FORM_URL"
+FEEDBACK_URL = "https://docs.google.com/forms/d/e/1FAIpQLScFzNMjspwTnWTtWem9uKiPlSsvwio-QjQ4aJ0_09Y9_MIxEw/viewform?usp=publish-editor"
 KOFI_URL     = "https://ko-fi.com/windcast"
 
 def render_info_tab():
