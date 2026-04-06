@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   WINDCAST — Precision Lifting Weather Forecast  v5.1                       ║
+║   WINDCAST — Precision Lifting Weather Forecast  v5.2                       ║
 ║   BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006                       ║
 ║   Source: ECMWF IFS 0.25° via Open-Meteo (free tier)                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -27,12 +27,12 @@ st.set_page_config(
 # ══════════════════════════════════════════════════════════════════════════════
 for k, v in [("mode", "land"), ("crane_h", 40), ("lat", None), ("lon", None), 
              ("loc_name", ""), ("fdays", 1), ("wind_unit", "m/s"), ("temp_unit", "°C"), 
-             ("terrain", "Open / Coastal"), ("view_mode", "24h")]:
+             ("terrain", "Open / Coastal"), ("view_mode", "24h"), ("show_info", False)]:
     if k not in st.session_state:
         st.session_state[k] = v
 
 # ══════════════════════════════════════════════════════════════════════════════
-# RESPONSIVE CSS - FIXED BREAKPOINTS
+# RESPONSIVE CSS - FIXED BUTTON SIZES
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -44,7 +44,7 @@ section[data-testid="stSidebar"] {display: none !important;}
 /* ── Header ── */
 .app-header {
     background: #131b2e;
-    padding: 0.75rem 1.5rem;
+    padding: 0.5rem 1rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -55,49 +55,62 @@ section[data-testid="stSidebar"] {display: none !important;}
     align-items: center;
     gap: 0.5rem;
     font-family: 'Space Grotesk', sans-serif;
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     font-weight: 800;
     color: #fff;
     letter-spacing: 0.1em;
     text-transform: uppercase;
 }
-.header-nav {display: flex; gap: 1.5rem; align-items: center;}
-.nav-link {
-    background: none;
-    border: none;
-    color: #94a3b8;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    font-size: 0.875rem;
-    cursor: pointer;
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.375rem;
-    transition: all 0.2s;
+.header-nav {display: flex; gap: 0.5rem; align-items: center;}
+
+/* ── SMALL BUTTONS ── */
+.small-btn {
+    background: transparent !important;
+    border: 1px solid #424754 !important;
+    color: #94a3b8 !important;
+    padding: 0.25rem 0.625rem !important;
+    font-size: 0.6875rem !important;
+    font-weight: 700 !important;
+    border-radius: 0.375rem !important;
+    cursor: pointer !important;
+    transition: all 0.2s !important;
+    height: auto !important;
+    min-height: unset !important;
+    line-height: 1.2 !important;
 }
-.nav-link:hover {background: #31394d; color: #fff;}
+.small-btn:hover {
+    background: #31394d !important;
+    color: #fff !important;
+    border-color: #64748b !important;
+}
+.small-btn.active {
+    background: #3b82f6 !important;
+    color: white !important;
+    border-color: #3b82f6 !important;
+}
 
 /* ── Control Section ── */
 .control-section {
     background: #171f33;
-    padding: 1rem 1.5rem;
-    margin: 1rem;
+    padding: 0.75rem;
+    margin: 0.5rem;
     border-radius: 0.75rem;
 }
 
 /* ── Search Container ── */
 .search-container {
     position: relative;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
 }
 .search-input {
     width: 100%;
     background: #222a3d;
     border: none;
     border-radius: 0.5rem;
-    padding: 0.625rem 3rem 0.625rem 1rem;
+    padding: 0.5rem 2.5rem 0.5rem 0.875rem;
     color: #dae2fd;
     font-family: 'Inter', sans-serif;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
 }
 .search-btn {
     position: absolute;
@@ -107,8 +120,8 @@ section[data-testid="stSidebar"] {display: none !important;}
     background: #ee9800;
     border: none;
     border-radius: 0.375rem;
-    width: 2.25rem;
-    height: 2.25rem;
+    width: 2rem;
+    height: 2rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -118,12 +131,12 @@ section[data-testid="stSidebar"] {display: none !important;}
 /* ── Crane Widget ── */
 .crane-widget {
     background: #222a3d;
-    padding: 0.625rem 1rem;
+    padding: 0.5rem 0.75rem;
     border-radius: 9999px;
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
+    gap: 0.625rem;
+    margin-bottom: 0.625rem;
 }
 .crane-label {
     font-size: 0.625rem;
@@ -142,54 +155,55 @@ section[data-testid="stSidebar"] {display: none !important;}
 .crane-value {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     color: #4d8eff;
-    min-width: 2.5rem;
+    min-width: 2.25rem;
 }
 
 /* ── Toggle Rows ── */
 .toggle-row {
     display: flex;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
 }
 .toggle-group {
     background: #060e20;
     border-radius: 9999px;
-    padding: 0.25rem;
+    padding: 0.1875rem;
     display: flex;
     flex: 1;
-    height: 2.5rem;
+    height: 2.25rem;
     align-items: center;
 }
 
-/* ── Streamlit Button Overrides ── */
+/* ── Streamlit Button Overrides - EXTRA SMALL ── */
 .stButton > button {
     border: none !important;
     border-radius: 9999px !important;
-    font-size: 0.75rem !important;
+    font-size: 0.6875rem !important;
     font-weight: 700 !important;
-    padding: 0.375rem 1rem !important;
+    padding: 0.25rem 0.625rem !important;
     height: auto !important;
     min-height: unset !important;
     transition: all 0.2s !important;
+    line-height: 1.2 !important;
 }
 
 /* ── NOW Card ── */
 .now-card {
     background: #2d3449;
-    padding: 1rem;
+    padding: 0.75rem;
     border-radius: 0.75rem;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
 }
 .now-header {
     display: flex;
     justify-content: space-between;
     align-items: start;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
 }
 .now-title {
-    font-size: 0.625rem;
+    font-size: 0.5625rem;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -198,38 +212,38 @@ section[data-testid="stSidebar"] {display: none !important;}
 .now-status {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
-    font-size: 1rem;
+    font-size: 0.875rem;
     color: #4ae176;
 }
 .now-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
 }
 .now-stat {
     background: #060e20;
-    padding: 0.75rem;
+    padding: 0.625rem;
     border-radius: 0.5rem;
 }
 .now-stat-label {
-    font-size: 0.625rem;
+    font-size: 0.5625rem;
     font-weight: 700;
     text-transform: uppercase;
     color: #c2c6d6;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.1875rem;
 }
 .now-stat-value {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 800;
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     color: #4ae176;
 }
 .now-footer {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-top: 0.75rem;
+    padding-top: 0.625rem;
     border-top: 1px solid #424754;
 }
 
@@ -237,16 +251,16 @@ section[data-testid="stSidebar"] {display: none !important;}
 .optimal-banner {
     background: rgba(74, 225, 118, 0.1);
     border: 1px solid rgba(74, 225, 118, 0.3);
-    padding: 0.875rem 1rem;
+    padding: 0.75rem;
     border-radius: 0.75rem;
-    margin: 1rem;
+    margin: 0.5rem;
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem;
 }
 .optimal-icon {
-    width: 2.25rem;
-    height: 2.25rem;
+    width: 2rem;
+    height: 2rem;
     background: rgba(74, 225, 118, 0.2);
     border-radius: 50%;
     display: flex;
@@ -255,7 +269,7 @@ section[data-testid="stSidebar"] {display: none !important;}
 }
 .optimal-content {flex: 1;}
 .optimal-label {
-    font-size: 0.625rem;
+    font-size: 0.5625rem;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -264,7 +278,7 @@ section[data-testid="stSidebar"] {display: none !important;}
 .optimal-text {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     color: #fff;
 }
 
@@ -273,11 +287,11 @@ section[data-testid="stSidebar"] {display: none !important;}
     background: #171f33;
     border-radius: 0.75rem;
     overflow: hidden;
-    margin: 1rem;
+    margin: 0.5rem;
 }
 .forecast-header-row {
     background: #31394d;
-    padding: 0.75rem 1rem;
+    padding: 0.625rem 0.875rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -289,22 +303,22 @@ section[data-testid="stSidebar"] {display: none !important;}
     gap: 0.5rem;
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
-    font-size: 1.125rem;
+    font-size: 1rem;
     color: #fff;
 }
 .duration-toggles {
     display: flex;
-    gap: 0.25rem;
+    gap: 0.1875rem;
     background: #060e20;
-    padding: 0.25rem;
+    padding: 0.1875rem;
     border-radius: 9999px;
 }
 .duration-btn {
-    padding: 0.375rem 0.875rem;
+    padding: 0.3125rem 0.75rem;
     border: none;
     background: transparent;
     color: #c2c6d6;
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     font-weight: 700;
     border-radius: 9999px;
     cursor: pointer;
@@ -317,10 +331,10 @@ section[data-testid="stSidebar"] {display: none !important;}
 /* ── Forecast Table Header ── */
 .table-header {
     display: grid;
-    grid-template-columns: 3.5rem 1.2fr 1.2fr 2.5rem 2.5rem 2.5rem;
-    padding: 0.5rem 1rem;
+    grid-template-columns: 3rem 1fr 1fr 2.25rem 2.25rem 2.25rem;
+    padding: 0.4375rem 0.75rem;
     background: #222a3d;
-    font-size: 0.625rem;
+    font-size: 0.5625rem;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -331,8 +345,8 @@ section[data-testid="stSidebar"] {display: none !important;}
 /* ── Forecast Rows ── */
 .forecast-row {
     display: grid;
-    grid-template-columns: 3.5rem 1.2fr 1.2fr 2.5rem 2.5rem 2.5rem;
-    padding: 0.875rem 1rem;
+    grid-template-columns: 3rem 1fr 1fr 2.25rem 2.25rem 2.25rem;
+    padding: 0.75rem 0.75rem;
     border-bottom: 1px solid #2d3449;
     background: #131b2e;
     align-items: center;
@@ -350,7 +364,7 @@ section[data-testid="stSidebar"] {display: none !important;}
 .time-cell {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     color: #dae2fd;
 }
 .wind-cell {
@@ -359,7 +373,7 @@ section[data-testid="stSidebar"] {display: none !important;}
     gap: 0.125rem;
 }
 .wind-label {
-    font-size: 0.625rem;
+    font-size: 0.5625rem;
     font-weight: 700;
     text-transform: uppercase;
     color: #c2c6d6;
@@ -367,29 +381,29 @@ section[data-testid="stSidebar"] {display: none !important;}
 .wind-value {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 800;
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
 }
 .wind-value.safe {color: #4ae176;}
 .wind-value.caution {color: #ffb95f;}
 .wind-value.stop {color: #ffb4ab;}
 .dir-cell, .temp-cell, .prec-cell {
     text-align: center;
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     font-weight: 700;
 }
 
 /* ── Legend Bar ── */
 .legend-bar {
     background: #2d3449;
-    padding: 1rem;
+    padding: 0.75rem;
     border-radius: 0.75rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin: 1rem;
+    margin: 0.5rem;
 }
 .legend-title {
-    font-size: 0.625rem;
+    font-size: 0.5625rem;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -398,19 +412,19 @@ section[data-testid="stSidebar"] {display: none !important;}
 .legend-status {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
 }
-.legend-items {display: flex; gap: 1.25rem;}
+.legend-items {display: flex; gap: 1rem;}
 .legend-item {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
-    font-size: 0.6875rem;
+    gap: 0.3125rem;
+    font-size: 0.625rem;
     font-weight: 700;
 }
 .status-dot {
-    width: 0.625rem;
-    height: 0.625rem;
+    width: 0.5625rem;
+    height: 0.5625rem;
     border-radius: 50%;
 }
 .status-safe {background: #4ae176;}
@@ -420,20 +434,21 @@ section[data-testid="stSidebar"] {display: none !important;}
 /* ── Info Section ── */
 .info-section {
     background: #171f33;
-    padding: 1.5rem;
+    padding: 1rem;
     border-radius: 0.75rem;
-    margin: 1rem;
+    margin: 0.5rem;
 }
 .info-title {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
-    font-size: 1.125rem;
+    font-size: 1rem;
     color: #fff;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
 }
 .info-content {
     color: #c2c6d6;
     line-height: 1.6;
+    font-size: 0.8125rem;
 }
 
 /* ── Bottom Nav ── */
@@ -445,7 +460,7 @@ section[data-testid="stSidebar"] {display: none !important;}
     background: rgba(19, 27, 46, 0.95);
     backdrop-filter: blur(12px);
     border-top: 1px solid #31394d;
-    padding: 0.75rem 1rem;
+    padding: 0.625rem 0.75rem;
     display: flex;
     justify-content: space-around;
     align-items: center;
@@ -455,11 +470,11 @@ section[data-testid="stSidebar"] {display: none !important;}
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.1875rem;
     color: #64748b;
     cursor: pointer;
     transition: all 0.2s;
-    padding: 0.5rem 2rem;
+    padding: 0.375rem 1.25rem;
     border-radius: 9999px;
 }
 .nav-item.active {
@@ -468,103 +483,78 @@ section[data-testid="stSidebar"] {display: none !important;}
 }
 .nav-item:hover {color: #fff;}
 .nav-label {
-    font-size: 0.625rem;
+    font-size: 0.5625rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
 }
 
-/* ── DESKTOP STYLES (min-width: 1024px) ── */
+/* ── DESKTOP STYLES ── */
 @media (min-width: 1024px) {
-    .main .block-container {padding: 1rem 2rem;}
+    .main .block-container {padding: 0.75rem 1.5rem;}
     .control-section {
         display: grid;
-        grid-template-columns: 1fr 320px;
-        gap: 1.5rem;
-        padding: 1.25rem 2rem;
+        grid-template-columns: 1fr 280px;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
     }
-    .toggle-row {margin-bottom: 1rem;}
+    .toggle-row {margin-bottom: 0.625rem;}
     .toggle-group {min-width: unset;}
     .table-header, .forecast-row {
-        grid-template-columns: 4rem 1.5fr 1.5fr 3rem 3rem 3rem;
+        grid-template-columns: 3.5rem 1.2fr 1.2fr 2.5rem 2.5rem 2.5rem;
     }
-    .wind-value {font-size: 1rem;}
-    .header-title {font-size: 1.75rem;}
-    .forecast-container {margin: 1rem 2rem;}
-    .legend-bar {margin: 1rem 2rem;}
-    .info-section {margin: 1rem 2rem;}
-    .optimal-banner {margin: 1rem 2rem;}
+    .wind-value {font-size: 0.9375rem;}
+    .header-title {font-size: 1.5rem;}
+    .forecast-container {margin: 0.75rem 1rem;}
+    .legend-bar {margin: 0.75rem 1rem;}
+    .info-section {margin: 0.75rem 1rem;}
+    .optimal-banner {margin: 0.75rem 1rem;}
     .now-card {margin-bottom: 0;}
 }
 
-/* ── TABLET STYLES (768px - 1023px) ── */
-@media (min-width: 768px) and (max-width: 1023px) {
-    .main .block-container {padding: 0.75rem 1.5rem;}
-    .control-section {padding: 1rem 1.5rem;}
-    .table-header, .forecast-row {
-        grid-template-columns: 3.5rem 1fr 1fr 2.5rem 2.5rem 2.5rem;
-    }
-    .toggle-group {min-width: 120px;}
-}
-
-/* ── MOBILE STYLES (max-width: 767px) ── */
+/* ── MOBILE STYLES ── */
 @media (max-width: 767px) {
-    .main .block-container {padding: 0.5rem;}
-    .app-header {padding: 0.625rem 1rem;}
-    .header-title {font-size: 1.125rem;}
-    .header-nav {gap: 1rem;}
-    .nav-link {font-size: 0.75rem; padding: 0.25rem;}
-    .control-section {padding: 0.875rem; margin: 0.5rem;}
-    .toggle-row {flex-wrap: wrap; gap: 0.5rem;}
-    .toggle-group {height: 2.25rem; min-width: unset;}
-    .crane-widget {padding: 0.5rem 0.875rem;}
+    .main .block-container {padding: 0.375rem;}
+    .app-header {padding: 0.5rem 0.75rem;}
+    .header-title {font-size: 1rem;}
+    .header-nav {gap: 0.375rem;}
+    .control-section {padding: 0.625rem; margin: 0.375rem;}
+    .toggle-row {flex-wrap: wrap; gap: 0.375rem;}
+    .toggle-group {height: 2rem; min-width: unset;}
+    .crane-widget {padding: 0.4375rem 0.625rem;}
     .table-header, .forecast-row {
-        grid-template-columns: 3rem 1fr 2.5rem 2rem 2rem;
-        font-size: 0.75rem;
-        padding: 0.75rem 0.5rem;
+        grid-template-columns: 2.75rem 1fr 2.25rem 1.75rem 1.75rem;
+        font-size: 0.6875rem;
+        padding: 0.5625rem 0.4375rem;
     }
     .table-header span:nth-child(3), 
     .forecast-row > div:nth-child(3) {display: none;}
     .wind-cell {flex-direction: row; gap: 0.25rem; align-items: baseline;}
     .wind-label {display: none;}
-    .wind-value {font-size: 0.875rem;}
+    .wind-value {font-size: 0.8125rem;}
     .legend-bar {
         flex-direction: column;
-        gap: 1rem;
+        gap: 0.75rem;
         align-items: flex-start;
-        padding: 0.875rem;
-        margin: 0.5rem;
+        padding: 0.625rem;
+        margin: 0.375rem;
     }
     .now-grid {grid-template-columns: 1fr;}
     .optimal-banner {
         flex-direction: column;
         align-items: flex-start;
-        padding: 0.875rem;
-        margin: 0.5rem;
+        padding: 0.625rem;
+        margin: 0.375rem;
     }
-    .forecast-container {margin: 0.5rem;}
-    .info-section {padding: 1rem; margin: 0.5rem;}
-    .bottom-nav {padding: 0.625rem 0.5rem;}
-    .nav-item {padding: 0.5rem 1rem;}
-    .nav-label {font-size: 0.5625rem;}
+    .forecast-container {margin: 0.375rem;}
+    .info-section {padding: 0.75rem; margin: 0.375rem;}
+    .bottom-nav {padding: 0.5rem 0.375rem;}
+    .nav-item {padding: 0.375rem 0.875rem;}
+    .nav-label {font-size: 0.5rem;}
     .stButton > button {
-        font-size: 0.6875rem !important;
-        padding: 0.3125rem 0.75rem !important;
+        font-size: 0.625rem !important;
+        padding: 0.1875rem 0.5rem !important;
     }
-}
-
-/* ── VERY SMALL MOBILE (max-width: 480px) ── */
-@media (max-width: 480px) {
-    .header-title {font-size: 1rem;}
-    .header-nav {gap: 0.75rem;}
-    .nav-link {display: none;}
-    .toggle-group {font-size: 0.6875rem;}
-    .table-header, .forecast-row {
-        grid-template-columns: 2.75rem 1fr 2.25rem 1.75rem 1.75rem;
-        font-size: 0.6875rem;
-        padding: 0.625rem 0.375rem;
-    }
-    .wind-value {font-size: 0.8125rem;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -630,7 +620,7 @@ def get_weather_icon(cloud: float, precip: float) -> str:
     else: return "☀️"
 
 def parse_location(query: str):
-    """Parse location from search query"""
+    """Parse location from search query - FIXED"""
     q = query.strip()
     if not q:
         return None, None, None
@@ -658,15 +648,26 @@ def parse_location(query: str):
         except:
             pass
     
-    # Place name
+    # Place name - IMPROVED
     try:
         r = requests.get("https://nominatim.openstreetmap.org/search",
-                        params={"q": q, "format": "json", "limit": 1},
-                        headers={"User-Agent": "Windcast/5.1"}, timeout=6)
+                        params={"q": q, "format": "json", "limit": 1, "addressdetails": 1},
+                        headers={"User-Agent": "Windcast/5.2"}, timeout=10)
         d = r.json()
-        if d:
-            return float(d[0]["lat"]), float(d[0]["lon"]), d[0].get("display_name","")[:50]
-    except:
+        if d and len(d) > 0:
+            lat = float(d[0]["lat"])
+            lon = float(d[0]["lon"])
+            # Get a better display name
+            display = d[0].get("display_name", "")
+            if display:
+                # Extract just the city/town name
+                parts = display.split(",")
+                name = parts[0].strip() if parts else q
+            else:
+                name = q
+            return lat, lon, name
+    except Exception as e:
+        st.error(f"Location lookup error: {e}")
         pass
     
     return None, None, None
@@ -719,24 +720,66 @@ def fetch_forecast(lat: float, lon: float, hours: int = 168):
 # MAIN APP
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
-    # ── HEADER ────────────────────────────────────────────────────────────────
-    st.markdown("""
-    <div class="app-header">
-        <div class="header-title">
-            <span style="color:#fbbf24">⚡</span>
-            WINDCAST
+    # ── HEADER WITH WORKING BUTTONS ──────────────────────────────────────────
+    col_logo, col_nav = st.columns([3, 1], gap="small")
+    
+    with col_logo:
+        st.markdown("""
+        <div class="app-header" style="border:none;padding:0.5rem;">
+            <div class="header-title">
+                <span style="color:#fbbf24">⚡</span>
+                WINDCAST
+            </div>
         </div>
-        <div class="header-nav">
-            <button class="nav-link" onclick="document.getElementById('info-section').scrollIntoView({behavior:'smooth'})">Info</button>
-            <button class="nav-link">Support</button>
+        """, unsafe_allow_html=True)
+    
+    with col_nav:
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("📖 Info", key="info_btn", use_container_width=True):
+                st.session_state.show_info = not st.session_state.show_info
+                st.rerun()
+        with c2:
+            if st.button("📞 Support", key="support_btn", use_container_width=True):
+                st.info("Email: support@windcast.app\n\nFor urgent issues, contact your site supervisor.")
+    
+    # ── SHOW INFO SECTION ─────────────────────────────────────────────────────
+    if st.session_state.show_info:
+        st.markdown('<div id="info-section" class="info-section">', unsafe_allow_html=True)
+        st.markdown('<div class="info-title">📖 About Windcast</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="info-content">
+        <p><strong>Built by lifting supervisors for lifting supervisors.</strong></p>
+        
+        <h4 style="color:#fff;margin:1rem 0 0.5rem 0">🎯 What It Does</h4>
+        <ul style="margin:0;padding-left:1.5rem">
+            <li>ECMWF IFS 0.25° — professional-grade model</li>
+            <li>BS 7121 height correction + terrain factor</li>
+            <li>Colour-coded Go/No-Go thresholds</li>
+        </ul>
+        
+        <h4 style="color:#fff;margin:1rem 0 0.5rem 0">📋 How To Use</h4>
+        <ol style="margin:0;padding-left:1.5rem">
+            <li>Enter postcode, place name, or lat;lon</li>
+            <li>Set crane height</li>
+            <li>Read the ✦ crane height column</li>
+            <li>Verify with on-site anemometer</li>
+        </ol>
+        
+        <h4 style="color:#fff;margin:1rem 0 0.5rem 0">🎨 Legend</h4>
+        <ul style="margin:0;padding-left:1.5rem">
+            <li style="color:#4ae176"><strong>● SAFE</strong> — ≤ 5.9 m/s</li>
+            <li style="color:#ffb95f"><strong>⚠ CAUTION</strong> — 6–14 m/s</li>
+            <li style="color:#ffb4ab"><strong>Ⓧ STOP</strong> — > 14 m/s</li>
+        </ul>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # ── CONTROL SECTION ───────────────────────────────────────────────────────
     st.markdown('<div class="control-section">', unsafe_allow_html=True)
     
-    col1, col2 = st.columns([2, 1], gap="large")
+    col1, col2 = st.columns([2, 1], gap="small")
     
     with col1:
         # Search
@@ -795,37 +838,6 @@ def main():
                     st.session_state.fdays = days
                     st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Toggles Row 4: Units & View
-        st.markdown('<div class="toggle-row">', unsafe_allow_html=True)
-        unit_col, view_col = st.columns([1, 1])
-        with unit_col:
-            st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
-            u1, u2 = st.columns(2)
-            with u1:
-                if st.button(st.session_state.wind_unit.upper(), key="unit_wind", 
-                            use_container_width=True, type="primary"):
-                    pass
-            with u2:
-                if st.button(st.session_state.temp_unit, key="unit_temp", 
-                            use_container_width=True, type="primary"):
-                    pass
-            st.markdown('</div>', unsafe_allow_html=True)
-        with view_col:
-            st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
-            v1, v2 = st.columns(2)
-            with v1:
-                if st.button("24h", key="view_24h", use_container_width=True,
-                            type="primary" if st.session_state.view_mode=="24h" else "secondary"):
-                    st.session_state.view_mode = "24h"
-                    st.rerun()
-            with v2:
-                if st.button("3h", key="view_3h", use_container_width=True,
-                            type="primary" if st.session_state.view_mode=="3h" else "secondary"):
-                    st.session_state.view_mode = "3h"
-                    st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
         # NOW Card
@@ -842,12 +854,12 @@ def main():
                 <div class="now-stat">
                     <div class="now-stat-label">Gust @10m</div>
                     <div class="now-stat-value">5.2</div>
-                    <div style="font-size:0.75rem;color:#c2c6d6">m/s</div>
+                    <div style="font-size:0.6875rem;color:#c2c6d6">m/s</div>
                 </div>
                 <div class="now-stat">
                     <div class="now-stat-label">Gust @40m</div>
                     <div class="now-stat-value" style="color:#ffb95f">7.1</div>
-                    <div style="font-size:0.75rem;color:#c2c6d6">m/s</div>
+                    <div style="font-size:0.6875rem;color:#c2c6d6">m/s</div>
                 </div>
             </div>
             <div class="now-footer">
@@ -867,19 +879,21 @@ def main():
             <div class="optimal-label">Optimal Lift Window</div>
             <div class="optimal-text">Safe to lift 09:00–13:00 — conditions deteriorate from 13:00</div>
         </div>
-        <div style="background:#4ae176;color:#000;padding:0.25rem 0.75rem;border-radius:9999px;font-size:0.625rem;font-weight:800">ACTIVE</div>
+        <div style="background:#4ae176;color:#000;padding:0.1875rem 0.625rem;border-radius:9999px;font-size:0.5625rem;font-weight:800">ACTIVE</div>
     </div>
     """, unsafe_allow_html=True)
     
     # ── FETCH DATA ────────────────────────────────────────────────────────────
     if search_val and (not st.session_state.lat or search_val != st.session_state.loc_name):
-        lat, lon, name = parse_location(search_val)
+        with st.spinner("Looking up location..."):
+            lat, lon, name = parse_location(search_val)
         if lat:
             st.session_state.lat, st.session_state.lon = lat, lon
             st.session_state.loc_name = name
+            st.success(f"📍 {name}")
             st.rerun()
         else:
-            st.error("Location not found. Try UK postcode or coordinates.")
+            st.error(f"❌ Location not found: '{search_val}'\n\nTry:\n• UK postcode (e.g., SO23 9NA)\n• Place name (e.g., Winchester, London)\n• Coordinates (51.06;-1.31)")
     
     # ── FORECAST TABLE ────────────────────────────────────────────────────────
     if st.session_state.lat:
@@ -905,7 +919,6 @@ def main():
                     <button class="duration-btn {'active' if st.session_state.fdays==1 else ''}">1D</button>
                     <button class="duration-btn {'active' if st.session_state.fdays==3 else ''}">3D</button>
                     <button class="duration-btn {'active' if st.session_state.fdays==7 else ''}">7D</button>
-                    <button class="duration-btn">MAX</button>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -993,43 +1006,6 @@ def main():
             </div>
             """, unsafe_allow_html=True)
     
-    # ── INFO SECTION ──────────────────────────────────────────────────────────
-    st.markdown('<div id="info-section" class="info-section">', unsafe_allow_html=True)
-    st.markdown('<div class="info-title">📖 About Windcast</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div class="info-content">
-    <p><strong>Built by lifting supervisors for lifting supervisors.</strong> Provides height-corrected wind forecasts based on ECMWF IFS 0.25° model data.</p>
-    
-    <h4 style="color:#fff;margin:1rem 0 0.5rem 0">🎯 What It Does</h4>
-    <ul style="margin:0;padding-left:1.5rem">
-        <li>ECMWF IFS 0.25° — professional-grade model</li>
-        <li>BS 7121 height correction + terrain factor</li>
-        <li>Colour-coded Go/No-Go thresholds</li>
-        <li>Built by a lifting supervisor, not a software company</li>
-    </ul>
-    
-    <h4 style="color:#fff;margin:1rem 0 0.5rem 0">📋 How To Use</h4>
-    <ol style="margin:0;padding-left:1.5rem">
-        <li>Enter your postcode, place name, or lat;lon</li>
-        <li>Set crane height — use slider or tap +/−</li>
-        <li>Read the ✦ crane height column — that's your Go/No-Go figure</li>
-        <li>Always verify with your on-site anemometer before commencing</li>
-    </ol>
-    
-    <h4 style="color:#fff;margin:1rem 0 0.5rem 0">🎨 Colour Legend</h4>
-    <ul style="margin:0;padding-left:1.5rem">
-        <li style="color:#4ae176"><strong>● SAFE</strong> — Gust ≤ 5.9 m/s — Proceed with lift plan</li>
-        <li style="color:#ffb95f"><strong>⚠ CAUTION</strong> — Gust 6–14 m/s — Enhanced monitoring required</li>
-        <li style="color:#ffb4ab"><strong>Ⓧ STOP</strong> — Gust > 14 m/s — Do not commence lifting operations</li>
-    </ul>
-    
-    <p style="margin-top:1rem;padding:0.75rem;background:#222a3d;border-radius:0.5rem">
-    <strong>⚠️ FOR PLANNING PURPOSES ONLY</strong> · BS 7121-1:2016 · LOLER 1998 · HSE PM55 · IMCA LR006
-    </p>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-    
     # ── BOTTOM NAVIGATION ─────────────────────────────────────────────────────
     st.markdown("""
     <div class="bottom-nav">
@@ -1046,7 +1022,7 @@ def main():
             <span class="nav-label">Share</span>
         </div>
     </div>
-    <div style="height:5rem"></div>
+    <div style="height:4.5rem"></div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
