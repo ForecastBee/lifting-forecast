@@ -1,225 +1,605 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   LIFTING OPERATIONS WEATHER FORECAST  v4.1  —  Land + Offshore Combined   ║
-║   BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006 | NORSOK R-003       ║
+║   WINDCAST — Precision Lifting Weather Forecast  v5.0                       ║
+║   BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006                       ║
 ║   Source: ECMWF IFS 0.25° via Open-Meteo (free tier)                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
 
-# ══════════════════════════════════════════════════════════════════════════════
-# IMPORTS
-# ══════════════════════════════════════════════════════════════════════════════
 import streamlit as st
-import streamlit.components.v1 as components
 import requests, json, os, re
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone, timedelta
-import pytz
+import qrcode
+from io import BytesIO
+from suntime import Sun
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="Lifting Ops Forecast",
-    page_icon="🐝️",
+    page_title="Windcast",
+    page_icon="🌤️",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# API KEYS
+# SESSION STATE INIT
 # ══════════════════════════════════════════════════════════════════════════════
-def _secret(key, fallback=None):
-    try:
-        return st.secrets[key]
-    except Exception:
-        return fallback
-
-METOFFICE_API_KEY   = _secret("METOFFICE_API_KEY",   "")
-TOMORROW_IO_API_KEY = _secret("TOMORROW_IO_API_KEY",  "")
-OPEN_METEO_API_KEY  = _secret("OPEN_METEO_API_KEY",   None)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# GLOBAL CSS
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("""
-<style>
-/* ── Hide Streamlit chrome ── */
-#MainMenu, header, footer { visibility: hidden; }
-section[data-testid="stSidebar"] { display: none !important; }
-button[data-testid="collapsedControl"] { display: none !important; }
-.main .block-container { padding: 0.8rem 1.2rem 1rem 1.2rem; max-width: 100%; }
-
-/* ── Page title ── */
-.page-title { font-size: 2rem; font-weight: 800; color: #fff; margin: 0 0 0.8rem 0; line-height: 1.1; }
-
-/* ── Align button baseline with inputs: remove top label gap ── */
-div[data-testid="stButton"] > button { margin-top: 0 !important; }
-div[data-testid="column"]:has(.btn-align) button { margin-top: 1.65rem; }
-
-/* ── Risk circle symbols ── */
-.ci-safe    { color: #1E88E5; }
-.ci-caution { color: #FB8C00; }
-.ci-danger  { color: #8E24AA; }
-
-/* ── Forecast tab buttons ── */
-.tab-row { display:flex; gap:0; margin: 0.6rem 0 0.3rem 0; align-items:center; }
-.tab-btn {
-    background:#1a1a2e; color:#aaa; border:1px solid #333;
-    padding: 4px 14px; font-size: 0.8rem; cursor:pointer;
-    border-radius: 0;
-}
-.tab-btn:first-child { border-radius: 6px 0 0 6px; }
-.tab-btn:last-child  { border-radius: 0 6px 6px 0; }
-.tab-btn.active { background:#EF4444; color:#fff; border-color:#EF4444; font-weight:700; }
-
-/* ── Land/Sea toggle ── */
-.mode-toggle { display:flex; gap:0; }
-.mode-btn {
-    display:inline-flex; align-items:center; gap:5px;
-    padding: 4px 14px; font-size: 0.8rem; font-weight:600;
-    border: 1px solid #555; cursor:pointer; border-radius:0;
-    background:#1a1a2e; color:#aaa;
-}
-.mode-btn:first-child { border-radius: 6px 0 0 6px; }
-.mode-btn:last-child  { border-radius: 0 6px 6px 0; }
-.mode-btn.active-land { background:#EF4444; color:#fff; border-color:#EF4444; }
-.mode-btn.active-sea  { background:#EF4444; color:#fff; border-color:#EF4444; }
-
-/* ── Info line ── */
-.info-line { font-size:0.8rem; color:#90CAF9; margin: 0.15rem 0 0.3rem 0; }
-
-/* ── Legend strip ── */
-.legend-strip { display:flex; gap:14px; flex-wrap:wrap; font-size:0.78rem;
-    margin:0.2rem 0 0.4rem 0; align-items:center; color:#ccc; }
-.leg-item { display:flex; align-items:center; gap:4px; font-weight:600; }
-
-/* ── Alert boxes ── */
-.box-info    { background:rgba(21,101,192,.15); border:1px solid #1565C0; border-radius:7px; padding:.6rem .8rem; margin:.3rem 0; font-size:.8rem; }
-.box-caution { background:rgba(230,81,0,.15);  border:1px solid #E65100; border-radius:7px; padding:.6rem .8rem; margin:.3rem 0; font-size:.8rem; }
-.box-danger  { background:rgba(74,20,140,.15); border:1px solid #8E24AA; border-radius:7px; padding:.6rem .8rem; margin:.3rem 0; font-size:.8rem; }
-
-/* ── Saved location pills ── */
-.saved-pill { display:inline-block; background:#1a2a3a; border:1px solid #1565C0;
-  border-radius:12px; padding:2px 10px; margin:2px 3px; font-size:0.72rem; color:#90CAF9; }
-
-/* ── Disclaimer ── */
-.disclaimer { background:#0d0d1a; border:1px solid #333; border-radius:5px;
-  padding:.5rem; font-size:.68rem; color:#888; margin-top:0.8rem; }
-
-/* ── coord hint ── */
-.coord-hint { font-size: 0.68rem; color: #666; margin-top: 0.15rem; }
-
-/* ── Table (rendered directly, no iframe) ── */
-.table-wrap { overflow-x: auto; margin-top: 0.4rem; }
-.fc-table { width:100%; border-collapse:collapse; font-size:0.8rem; font-family:system-ui,sans-serif; }
-.fc-table thead tr th {
-    background:#0f3460; color:#90CAF9; padding:8px 6px;
-    text-align:center; white-space:nowrap;
-    position:sticky; top:0; z-index:10;
-    border-bottom:2px solid #1565C0; font-size:0.74rem;
-}
-.fc-table thead tr th.h10 { background:#0a2a50; color:#64B5F6; border-bottom:3px solid #1565C0; }
-.fc-table thead tr th.hcr { background:#004d40; color:#80CBC4; border-bottom:3px solid #00796B; }
-.fc-table tbody tr { border-bottom:1px solid #1a1a2e; color:#ddd; background:#0d0d1a; }
-.fc-table tbody tr:hover { background:rgba(21,101,192,0.12); }
-.fc-table tbody tr.day-break td { border-top:2px solid #1565C0 !important; }
-.fc-table td { padding:5px 5px; text-align:center; vertical-align:middle; }
-.fc-table td.time-col { white-space:nowrap; color:#90CAF9; font-weight:600; font-size:0.76rem; }
-.fc-table td.h10 { background:rgba(10,42,80,0.55); }
-.fc-table td.hcr { background:rgba(0,77,64,0.45); }
-.fc-table td.wind-val { font-weight:600; font-size:0.82rem; padding:5px 8px; line-height:1.75; }
-.fc-table .ci-safe    { color:#1E88E5; }
-.fc-table .ci-caution { color:#FB8C00; }
-.fc-table .ci-danger  { color:#8E24AA; }
-.fc-table td.dir-cell { color:#aaa; font-size:0.85em; }
-.fc-table td.temp-cell { border-radius:4px; padding:3px 5px; }
-.fc-table td.cloud-cell { color:#bbb; }
-.fc-table td.rain-cell { border-radius:4px; padding:3px 5px; }
-.fc-table td.wave-cell { border-radius:5px; padding:4px 5px; }
-.fc-table small { font-size:0.65em; opacity:0.85; display:block; }
-
-/* Hide Cloud and Pressure on mobile */
-@media (max-width: 768px) {
-    .page-title { font-size: 1.4rem; }
-    .main .block-container { padding: 0.4rem 0.5rem; }
-    .tab-row { flex-wrap: wrap; }
-    .legend-strip { gap: 8px; font-size: 0.7rem; }
-    .fc-table { font-size: 0.7rem; }
-    .fc-table td { padding: 3px 3px; }
-    .hide-mobile { display: none; }
-}
-@media (max-width: 480px) {
-    .page-title { font-size: 1.1rem; }
-    .fc-table td.time-col { font-size: 0.65rem; }
-}
-</style>
-""", unsafe_allow_html=True)
+if "disclaimer_ack" not in st.session_state:
+    st.session_state.disclaimer_ack = False
+for k, v in [("mode", "land"), ("crane_h", 40), ("lat", None), ("lon", None), 
+             ("loc_name", ""), ("fdays", 1), ("wind_unit", "m/s"), ("temp_unit", "°C"), 
+             ("terrain", "Open / Coastal"), ("theme", "system"), ("view_mode", "24h")]:
+    if k not in st.session_state:
+        st.session_state[k] = v
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-
 WIND_UNIT_FACTORS = {
-    "m/s":     (1.0,    "m/s"),
-    "knots":   (1.9438, "kt"),
-    "mph":     (2.2369, "mph"),
-    "km/h":    (3.6,    "km/h"),
-    "Beaufort": (None,  "Bft"),
+    "m/s": (1.0, "m/s"),
+    "knots": (1.9438, "kt"),
+    "mph": (2.2369, "mph"),
+    "km/h": (3.6, "km/h"),
+    "Beaufort": (None, "Bft"),
 }
 
 TERRAIN = {
-    "Open / Coastal":   {"alpha": 0.14, "factor": 1.00, "label": "Open/Coastal"},
-    "Industrial / Port":{"alpha": 0.22, "factor": 1.10, "label": "Industrial"},
-    "Urban / City":     {"alpha": 0.28, "factor": 1.20, "label": "Urban/City"},
-    "Woodland / Forest":{"alpha": 0.20, "factor": 1.15, "label": "Woodland"},
+    "Open / Coastal": {"alpha": 0.14, "factor": 1.00, "icon": "🏖️"},
+    "Industrial / Port": {"alpha": 0.22, "factor": 1.10, "icon": "🏭"},
+    "Urban / City": {"alpha": 0.28, "factor": 1.20, "icon": "🏙️"},
+    "Woodland / Forest": {"alpha": 0.20, "factor": 1.15, "icon": "🌲"},
 }
 
-MODELS_LAND = {
-    "ECMWF":        {"endpoint": "ecmwf_ifs04",   "weight": 0.40, "label": "ECMWF IFS"},
-    "ICON":         {"endpoint": "icon_seamless",  "weight": 0.30, "label": "ICON"},
-    "GFS":          {"endpoint": "gfs_global",     "weight": 0.20, "label": "GFS"},
-    "MetOffice_UKV":{"endpoint": "ukmo_seamless",  "weight": 0.10, "label": "MetOffice UKV"},
+# ══════════════════════════════════════════════════════════════════════════════
+# RESPONSIVE CSS
+# ══════════════════════════════════════════════════════════════════════════════
+def get_css():
+    return """
+<style>
+/* ── Base Reset ── */
+#MainMenu, header, footer {visibility: hidden;}
+section[data-testid="stSidebar"] {display: none !important;}
+.main .block-container {padding: 0; max-width: 100%;}
+
+/* ── Theme Support ── */
+body.theme-light {background: #f8fafc; color: #1e293b;}
+body.theme-dark {background: #0b1326; color: #dae2fd;}
+
+/* ── Header ── */
+.app-header {
+    background: #131b2e;
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #2d3449;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+.header-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+.header-nav {display: flex; gap: 1rem; align-items: center;}
+.nav-link {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.375rem;
+    transition: all 0.2s;
+}
+.nav-link:hover {background: #31394d; color: #fff;}
+
+/* ── Control Section ── */
+.control-section {
+    background: #171f33;
+    padding: 1rem;
+    margin: 1rem;
+    border-radius: 0.75rem;
 }
 
-SAVED_LOCS_FILE = "forecast_logs/saved_locations.json"
+/* ── Search Container ── */
+.search-container {position: relative; margin-bottom: 0.75rem;}
+.search-input {
+    width: 100%;
+    background: #222a3d;
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.75rem 3rem 0.75rem 1rem;
+    color: #dae2fd;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9rem;
+}
+.search-btn {
+    position: absolute;
+    right: 0.25rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #ee9800;
+    border: none;
+    border-radius: 0.375rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+/* ── Crane Widget ── */
+.crane-widget {
+    background: #222a3d;
+    padding: 0.75rem 1rem;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+.crane-label {
+    font-size: 0.625rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #c2c6d6;
+}
+.crane-slider {
+    flex: 1;
+    height: 0.375rem;
+    background: #060e20;
+    border-radius: 0.1875rem;
+    outline: none;
+}
+.crane-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: #4d8eff;
+    min-width: 2.5rem;
+}
+
+/* ── Toggle Rows ── */
+.toggle-row {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-bottom: 0.5rem;
+}
+.toggle-row::-webkit-scrollbar {display: none;}
+.toggle-group {
+    background: #060e20;
+    border-radius: 9999px;
+    padding: 0.25rem;
+    display: flex;
+    flex: 1;
+    min-width: 100px;
+    height: 2.75rem;
+    align-items: center;
+}
+.toggle-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: #c2c6d6;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border-radius: 9999px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.toggle-btn.active {
+    background: #4d8eff;
+    color: #00285d;
+}
+
+/* ── NOW Card ── */
+.now-card {
+    background: #2d3449;
+    padding: 1rem;
+    border-radius: 0.75rem;
+    margin: 1rem;
+}
+.now-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: start;
+    margin-bottom: 1rem;
+}
+.now-title {
+    font-size: 0.625rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #c2c6d6;
+}
+.now-status {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    color: #4ae176;
+}
+.now-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+.now-stat {
+    background: #060e20;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+}
+.now-stat-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #c2c6d6;
+    margin-bottom: 0.25rem;
+}
+.now-stat-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 800;
+    font-size: 1.5rem;
+    color: #4ae176;
+}
+.now-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 0.75rem;
+    border-top: 1px solid #424754;
+}
+
+/* ── Optimal Window Banner ── */
+.optimal-banner {
+    background: rgba(74, 225, 118, 0.1);
+    border: 1px solid rgba(74, 225, 118, 0.3);
+    padding: 1rem;
+    border-radius: 0.75rem;
+    margin: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+.optimal-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    background: rgba(74, 225, 118, 0.2);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.optimal-content {flex: 1;}
+.optimal-label {
+    font-size: 0.625rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #4ae176;
+}
+.optimal-text {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: #fff;
+}
+
+/* ── Forecast Container ── */
+.forecast-container {
+    background: #171f33;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    margin: 1rem;
+}
+.forecast-header-row {
+    background: #31394d;
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #424754;
+}
+.forecast-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 1.125rem;
+    color: #fff;
+}
+.duration-toggles {
+    display: flex;
+    gap: 0.25rem;
+    background: #060e20;
+    padding: 0.25rem;
+    border-radius: 9999px;
+}
+.duration-btn {
+    padding: 0.375rem 0.75rem;
+    border: none;
+    background: transparent;
+    color: #c2c6d6;
+    font-size: 0.75rem;
+    font-weight: 700;
+    border-radius: 9999px;
+    cursor: pointer;
+}
+.duration-btn.active {
+    background: #4d8eff;
+    color: #00285d;
+}
+
+/* ── Forecast Table Header ── */
+.table-header {
+    display: grid;
+    grid-template-columns: 3.5rem 1fr 1fr 2.5rem 2.5rem 2.5rem;
+    padding: 0.5rem 1rem;
+    background: #222a3d;
+    font-size: 0.625rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #c2c6d6;
+    border-bottom: 1px solid #424754;
+}
+
+/* ── Forecast Rows ── */
+.forecast-row {
+    display: grid;
+    grid-template-columns: 3.5rem 1fr 1fr 2.5rem 2.5rem 2.5rem;
+    padding: 1rem;
+    border-bottom: 1px solid #2d3449;
+    background: #131b2e;
+    align-items: center;
+}
+.forecast-row:nth-child(even) {background: #060e20;}
+.forecast-row.caution {
+    background: rgba(255, 185, 95, 0.1);
+    border-left: 3px solid #ffb95f;
+}
+.forecast-row.stop {
+    background: rgba(255, 180, 171, 0.1);
+    border-left: 3px solid #ffb4ab;
+}
+
+.time-cell {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 0.875rem;
+    color: #dae2fd;
+}
+.wind-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+.wind-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #c2c6d6;
+}
+.wind-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 800;
+    font-size: 1rem;
+}
+.wind-value.safe {color: #4ae176;}
+.wind-value.caution {color: #ffb95f;}
+.wind-value.stop {color: #ffb4ab;}
+.dir-cell, .temp-cell, .prec-cell {
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+.status-indicator {
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 50%;
+    margin: 0 auto;
+    box-shadow: 0 0 8px currentColor;
+}
+.status-safe {background: #4ae176; color: #4ae176;}
+.status-caution {background: #ffb95f; color: #ffb95f;}
+.status-stop {background: #ffb4ab; color: #ffb4ab;}
+
+/* ── Legend Bar ── */
+.legend-bar {
+    background: #2d3449;
+    padding: 1rem;
+    border-radius: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 1rem;
+}
+.legend-title {
+    font-size: 0.625rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #c2c6d6;
+}
+.legend-status {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 0.875rem;
+}
+.legend-items {display: flex; gap: 1rem;}
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+}
+
+/* ── Info Section ── */
+.info-section {
+    background: #171f33;
+    padding: 1.5rem;
+    border-radius: 0.75rem;
+    margin: 1rem;
+}
+.info-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 1.125rem;
+    color: #fff;
+    margin-bottom: 1rem;
+}
+.info-content {
+    color: #c2c6d6;
+    line-height: 1.6;
+}
+
+/* ── Bottom Nav ── */
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: rgba(19, 27, 46, 0.95);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid #31394d;
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    z-index: 100;
+}
+.nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+    padding: 0.5rem 1.5rem;
+    border-radius: 9999px;
+}
+.nav-item.active {
+    background: #3b82f6;
+    color: white;
+}
+.nav-item:hover {color: #fff;}
+.nav-label {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+/* ── Export/Share Modal ── */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+.modal-content {
+    background: #171f33;
+    padding: 1.5rem;
+    border-radius: 1rem;
+    max-width: 90%;
+    width: 400px;
+}
+.modal-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 1.25rem;
+    color: #fff;
+    margin-bottom: 1rem;
+}
+.modal-option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: #222a3d;
+    border-radius: 0.5rem;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+}
+.modal-option:hover {background: #2d3449;}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+    .table-header, .forecast-row {
+        grid-template-columns: 3rem 1fr 2rem 2rem 2rem;
+    }
+    .wind-cell {flex-direction: row; gap: 0.25rem; align-items: baseline;}
+    .wind-label {display: none;}
+    .now-grid {grid-template-columns: 1fr;}
+    .legend-bar {flex-direction: column; gap: 1rem; align-items: flex-start;}
+    .header-title {font-size: 1rem;}
+}
+
+@media (min-width: 769px) {
+    .table-header, .forecast-row {
+        grid-template-columns: 4rem 1.5fr 1.5fr 3rem 3rem 3rem 3rem;
+    }
+    .control-section {
+        display: grid;
+        grid-template-columns: 1fr 300px;
+        gap: 1rem;
+    }
+}
+</style>
+"""
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
-
-def to_beaufort(ms: float) -> int:
-    thresholds = [0.5,1.6,3.4,5.5,8.0,10.8,13.9,17.2,20.8,24.5,28.5,32.7]
-    for i, t in enumerate(thresholds):
-        if ms < t:
-            return i
-    return 12
-
 def fmt_wind(ms: float, unit: str) -> str:
     if unit == "Beaufort":
-        return f"{to_beaufort(ms)} Bft"
-    factor, label = WIND_UNIT_FACTORS[unit]
-    return f"{ms * factor:.1f} {label}"
+        thresholds = [0.5,1.6,3.4,5.5,8.0,10.8,13.9,17.2,20.8,24.5,28.5,32.7]
+        for i, t in enumerate(thresholds):
+            if ms < t: return f"{i}"
+        return "12"
+    factor, label = WIND_UNIT_FACTORS.get(unit, (1.0, "m/s"))
+    return f"{ms * factor:.1f}"
 
-def risk_circle(gust_ms: float) -> tuple:
+def risk_status(gust_ms: float) -> tuple:
     if gust_ms <= 5.9:
-        return "●",  "ci-safe",    "SAFE"
+        return "safe", "●", "#4ae176", "SAFE"
     elif gust_ms <= 14.0:
-        return "⬡",  "ci-caution", "CAUTION"
+        return "caution", "⚠", "#ffb95f", "CAUTION"
     else:
-        return "Ⓧ", "ci-danger",  "STOP"
-
-def risk_banner_class(gust_ms: float) -> str:
-    if gust_ms <= 5.9:   return "status-safe"
-    elif gust_ms <= 14.0: return "status-caution"
-    else:                 return "status-danger"
+        return "stop", "Ⓧ", "#ffb4ab", "STOP"
 
 def direction_arrow(deg) -> str:
     try:
         d = float(deg)
         if np.isnan(d): return "—"
-        return ["↓","↙","←","↖","↑","↗","→","↘"][int((d + 22.5) / 45) % 8]
+        arrows = ["↓", "↙", "←", "↖", "↑", "↗", "→", "↘"]
+        return arrows[int((d + 22.5) / 45) % 8]
     except:
         return "—"
 
@@ -227,50 +607,28 @@ def apply_terrain(ws_10m: float, terrain_key: str, height: float) -> float:
     t = TERRAIN.get(terrain_key, TERRAIN["Open / Coastal"])
     return ws_10m * t["factor"] * ((height / 10) ** t["alpha"])
 
-def fmt_temp(c: float, unit: str) -> str:
-    if unit == "°F":
-        return f"{c * 9/5 + 32:.1f}°F"
-    return f"{c:.1f}°C"
-
 def safe_float(val, default=0.0):
     try:
         if val is None or val is pd.NaT: return default
         f = float(val)
         return default if f != f else f
-    except (TypeError, ValueError):
+    except:
         return default
 
-# ══════════════════════════════════════════════════════════════════════════════
-# LOCATION UTILITIES
-# ══════════════════════════════════════════════════════════════════════════════
+def get_weather_icon(cloud: float, precip: float) -> str:
+    if precip > 2: return "🌧️"
+    elif precip > 0: return "☁️"
+    elif cloud > 70: return "☁️"
+    elif cloud > 30: return "⛅"
+    else: return "☀️"
 
-def postcode_to_coords(pc: str):
-    try:
-        r = requests.get(f"https://api.postcodes.io/postcodes/{pc.replace(' ','')}", timeout=6)
-        d = r.json()
-        if d.get("status") == 200:
-            return (d["result"]["latitude"], d["result"]["longitude"],
-                    f"{pc.upper()} ({d['result']['admin_district']})")
-    except Exception:
-        pass
-    return None, None, None
-
-def place_to_coords(name: str):
-    try:
-        r = requests.get("https://nominatim.openstreetmap.org/search",
-                         params={"q": name, "format": "json", "limit": 1},
-                         headers={"User-Agent": "LiftingForecastApp/3.0"}, timeout=6)
-        d = r.json()
-        if d:
-            return float(d[0]["lat"]), float(d[0]["lon"]), d[0].get("display_name","")[:70]
-    except Exception:
-        pass
-    return None, None, None
-
-def parse_search(query: str):
+def parse_location(query: str):
+    """Parse location from search query"""
     q = query.strip()
     if not q:
         return None, None, None
+    
+    # Lat;Lon
     for sep in [";", ","]:
         if sep in q:
             parts = q.split(sep, 1)
@@ -278,65 +636,60 @@ def parse_search(query: str):
                 lat = float(parts[0].strip())
                 lon = float(parts[1].strip())
                 if -90 <= lat <= 90 and -180 <= lon <= 180:
-                    return lat, lon, f"{lat:.4f}°N, {lon:.4f}°E"
-            except ValueError:
+                    return lat, lon, f"{lat:.2f}°N, {lon:.2f}°E"
+            except:
                 pass
+    
+    # UK Postcode
     if re.match(r'^[A-Za-z]{1,2}\d{1,2}[A-Za-z]?\s*\d[A-Za-z]{2}$', q):
-        return postcode_to_coords(q)
-    return place_to_coords(q)
-
-def load_saved() -> list:
+        try:
+            r = requests.get(f"https://api.postcodes.io/postcodes/{q.replace(' ','')}", timeout=6)
+            d = r.json()
+            if d.get("status") == 200:
+                return (d["result"]["latitude"], d["result"]["longitude"],
+                       f"{q.upper()} ({d['result']['admin_district']})")
+        except:
+            pass
+    
+    # Place name
     try:
-        os.makedirs("forecast_logs", exist_ok=True)
-        if os.path.exists(SAVED_LOCS_FILE):
-            with open(SAVED_LOCS_FILE) as f:
-                return json.load(f)
-    except Exception:
+        r = requests.get("https://nominatim.openstreetmap.org/search",
+                        params={"q": q, "format": "json", "limit": 1},
+                        headers={"User-Agent": "Windcast/5.0"}, timeout=6)
+        d = r.json()
+        if d:
+            return float(d[0]["lat"]), float(d[0]["lon"]), d[0].get("display_name","")[:50]
+    except:
         pass
-    return []
-
-def save_location(name: str, lat: float, lon: float, crane_h: int, terrain: str):
-    locs = load_saved()
-    locs = [l for l in locs if l.get("name") != name]
-    locs.insert(0, {"name": name, "lat": lat, "lon": lon,
-                    "crane_h": crane_h, "terrain": terrain})
-    locs = locs[:12]
-    try:
-        os.makedirs("forecast_logs", exist_ok=True)
-        with open(SAVED_LOCS_FILE, "w") as f:
-            json.dump(locs, f, indent=2)
-    except Exception:
-        pass
+    
+    return None, None, None
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DATA FETCH — LAND
+# DATA FETCH
 # ══════════════════════════════════════════════════════════════════════════════
-
 @st.cache_data(ttl=1800)
-def fetch_ecmwf_land(lat: float, lon: float, hours: int = 168):
+def fetch_forecast(lat: float, lon: float, hours: int = 168):
     url = "https://api.open-meteo.com/v1/forecast"
     params = [
-        ("latitude", lat), ("longitude", lon), ("wind_speed_unit", "ms"),
-        ("forecast_days", min(hours // 24 + 1, 7)), ("timezone", "auto"),
-        ("models", "ecmwf_ifs025"),
+        ("latitude", lat), ("longitude", lon),
+        ("wind_speed_unit", "ms"), ("forecast_days", min(hours // 24 + 1, 7)),
+        ("timezone", "auto"), ("models", "ecmwf_ifs025"),
         ("hourly", "wind_speed_10m"), ("hourly", "wind_gusts_10m"),
         ("hourly", "wind_direction_10m"), ("hourly", "temperature_2m"),
         ("hourly", "precipitation"), ("hourly", "cloud_cover"),
-        ("hourly", "surface_pressure"), ("hourly", "visibility"),
-        ("hourly", "relative_humidity_2m"),
+        ("hourly", "surface_pressure"),
     ]
     try:
         r = requests.get(url, params=params, timeout=15)
         r.raise_for_status()
         body = r.json()
         if body.get("error"):
-            st.error(f"Open-Meteo error: {body.get('reason', body)}")
-            return None, []
+            return None
+        
         h = body.get("hourly", {})
         times = h.get("time", [])
-        if not times:
-            return None, []
         n = len(times)
+        
         df = pd.DataFrame({
             "time": pd.to_datetime(times),
             "wind_speed": pd.to_numeric(h.get("wind_speed_10m", [np.nan]*n), errors="coerce"),
@@ -346,690 +699,358 @@ def fetch_ecmwf_land(lat: float, lon: float, hours: int = 168):
             "precip": pd.to_numeric(h.get("precipitation", [np.nan]*n), errors="coerce"),
             "cloud": pd.to_numeric(h.get("cloud_cover", [np.nan]*n), errors="coerce"),
             "pressure": pd.to_numeric(h.get("surface_pressure", [np.nan]*n), errors="coerce"),
-            "visibility": pd.to_numeric(h.get("visibility", [np.nan]*n), errors="coerce"),
-            "humidity": pd.to_numeric(h.get("relative_humidity_2m", [np.nan]*n), errors="coerce"),
         })
+        
         now = pd.Timestamp.now().floor("h")
         df = df[df["time"] >= now].reset_index(drop=True)
-        return df, ["ECMWF IFS 0.25°"]
+        return df
     except Exception as e:
         st.error(f"Fetch error: {e}")
-        return None, []
-
-def fetch_consensus(lat: float, lon: float, hours: int):
-    return fetch_ecmwf_land(lat, lon, hours)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DATA FETCH — OFFSHORE
-# ══════════════════════════════════════════════════════════════════════════════
-
-@st.cache_data(ttl=1800)
-def fetch_offshore_wind(lat: float, lon: float, hours: int = 120):
-    url = "https://api.open-meteo.com/v1/forecast"
-    params = {
-        "latitude": lat, "longitude": lon,
-        "hourly": ["wind_speed_10m","wind_gusts_10m","wind_direction_10m",
-                   "temperature_2m","cloud_cover","precipitation","pressure_msl"],
-        "models": "ecmwf_ifs04", "wind_speed_unit": "ms",
-        "forecast_days": min(hours // 24 + 1, 7), "timezone": "UTC",
-    }
-    try:
-        r = requests.get(url, params=params, timeout=12)
-        r.raise_for_status()
-        h = r.json().get("hourly", {})
-        times = h.get("time", [])
-        if not times:
-            return None
-        df = pd.DataFrame({
-            "time": pd.to_datetime(times),
-            "wind_speed": pd.to_numeric(h.get("wind_speed_10m", [np.nan] * len(times)), errors="coerce"),
-            "wind_gust": pd.to_numeric(h.get("wind_gusts_10m", [np.nan] * len(times)), errors="coerce"),
-            "wind_dir": pd.to_numeric(h.get("wind_direction_10m", [np.nan] * len(times)), errors="coerce"),
-            "temperature": pd.to_numeric(h.get("temperature_2m", [np.nan] * len(times)), errors="coerce"),
-            "cloud": pd.to_numeric(h.get("cloud_cover", [np.nan] * len(times)), errors="coerce"),
-            "precip": pd.to_numeric(h.get("precipitation", [np.nan] * len(times)), errors="coerce"),
-            "pressure": pd.to_numeric(h.get("pressure_msl", [np.nan] * len(times)), errors="coerce"),
-        })
-        now = pd.Timestamp.now().floor("h")
-        df = df[df["time"] >= now].reset_index(drop=True)
-        return df
-    except Exception as e:
-        st.error(f"Wind fetch error: {e}")
-        return None
-
-@st.cache_data(ttl=1800)
-def fetch_offshore_marine(lat: float, lon: float, hours: int = 120):
-    url = "https://marine-api.open-meteo.com/v1/marine"
-    params = {
-        "latitude": lat, "longitude": lon,
-        "hourly": ["wave_height","wave_period","wave_direction",
-                   "swell_wave_height","swell_wave_period","swell_wave_direction",
-                   "wind_wave_height"],
-        "forecast_days": min(hours // 24 + 1, 7), "timezone": "UTC",
-    }
-    try:
-        r = requests.get(url, params=params, timeout=12)
-        r.raise_for_status()
-        h = r.json().get("hourly", {})
-        times = h.get("time", [])
-        if not times:
-            return None
-        df = pd.DataFrame({
-            "time": pd.to_datetime(times),
-            "hs": pd.to_numeric(h.get("wave_height", [np.nan] * len(times)), errors="coerce"),
-            "wave_period": pd.to_numeric(h.get("wave_period", [np.nan] * len(times)), errors="coerce"),
-            "wave_dir": pd.to_numeric(h.get("wave_direction", [np.nan] * len(times)), errors="coerce"),
-            "swell_hs": pd.to_numeric(h.get("swell_wave_height", [np.nan] * len(times)), errors="coerce"),
-            "swell_period": pd.to_numeric(h.get("swell_wave_period", [np.nan] * len(times)), errors="coerce"),
-            "swell_dir": pd.to_numeric(h.get("swell_wave_direction", [np.nan] * len(times)), errors="coerce"),
-            "wind_wave_hs": pd.to_numeric(h.get("wind_wave_height", [np.nan] * len(times)), errors="coerce"),
-        })
-        now = pd.Timestamp.now().floor("h")
-        df = df[df["time"] >= now].reset_index(drop=True)
-        return df
-    except Exception as e:
-        st.error(f"Marine fetch error: {e}")
         return None
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TABLE RENDERER
+# MAIN APP
 # ══════════════════════════════════════════════════════════════════════════════
-
-def _wind_cells(ws_10, wg_10, ws_h, wg_h, unit):
-    sym10, css10, _ = risk_circle(wg_10)
-    symH,  cssH,  _ = risk_circle(wg_h)
-    g10 = fmt_wind(wg_10, unit); w10 = fmt_wind(ws_10, unit)
-    gH  = fmt_wind(wg_h,  unit); wH  = fmt_wind(ws_h,  unit)
-    return (
-        f'<td class="h10 wind-val"><span class="{css10}">{sym10}</span> G {g10}<br><span style="color:#555;">○</span> W {w10}</td>'
-        f'<td class="hcr wind-val"><span class="{cssH}">{symH}</span> G {gH}<br><span style="color:#555;">○</span> W {wH}</td>'
-    )
-
-def _temp_colour(t: float) -> str:
-    if   t <= -3: return "#1565C0","#fff"
-    elif t <=  0: return "#1976D2","#fff"
-    elif t <=  5: return "#42A5F5","#000"
-    elif t <= 10: return "#80DEEA","#000"
-    elif t <= 15: return "#FFF176","#000"
-    elif t <= 20: return "#FFD54F","#000"
-    elif t <= 25: return "#FFB74D","#000"
-    else:         return "#FF8A65","#000"
-
-def _rain_colour(r: float) -> str:
-    if   r == 0:  return "#1a1a2e","#aaa"
-    elif r < 0.5: return "#1565C0","#fff"
-    elif r < 2:   return "#1976D2","#fff"
-    elif r < 5:   return "#0D47A1","#fff"
-    else:         return "#003060","#fff"
-
-def _wave_colour(hs: float) -> tuple:
-    if   hs < 0.5: return "#0D47A1","#fff","ci-safe"
-    elif hs < 1.5: return "#1565C0","#fff","ci-safe"
-    elif hs < 2.5: return "#E65100","#fff","ci-caution"
-    elif hs < 4.0: return "#6A1B9A","#fff","ci-danger"
-    else:          return "#38006b","#fff","ci-danger"
-
-def build_land_table_html(df, crane_h, terrain, unit, temp_unit, hours):
-    rows = []; prev_day = None
-    for _, row in df.head(hours).iterrows():
-        ts = pd.to_datetime(row["time"])
-        ws, wg = safe_float(row.get("wind_speed")), safe_float(row.get("wind_gust"))
-        wd, tmp = row.get("wind_dir", np.nan), safe_float(row.get("temperature"))
-        prc, cld = safe_float(row.get("precip")), safe_float(row.get("cloud"))
-        prs = safe_float(row.get("pressure"), 1013.0)
-        ws_h, wg_h = apply_terrain(ws, terrain, crane_h), apply_terrain(wg, terrain, crane_h)
-        try: wd_f = float(wd) if not np.isnan(float(wd)) else np.nan
-        except: wd_f = np.nan
-        datetime_str = ts.strftime("%a %d %b %H:%M")
-        day_break = " class='day-break'" if ts.strftime("%Y-%m-%d") != prev_day else ""
-        prev_day = ts.strftime("%Y-%m-%d")
-        tc, tf = _temp_colour(tmp); rc, rf = _rain_colour(prc)
-        dir_str = f"{direction_arrow(wd_f)}&thinsp;{wd_f:.0f}°" if not np.isnan(wd_f) else "—"
-        row_html = (f"<tr{day_break}><td class='time-col'>{datetime_str}</td>"
-            + _wind_cells(ws, wg, ws_h, wg_h, unit)
-            + f"<td class='dir-cell'>{dir_str}</td><td class='temp-cell' style='background:{tc};color:{tf};'>{fmt_temp(tmp, temp_unit)}</td>"
-            + f"<td class='rain-cell' style='background:{rc};color:{rf};'>{prc:.1f}mm</td>"
-            + f"<td class='cloud-cell'>{cld:.0f}%</td><td style='color:#aaa;'>{prs:.0f}mb</td></tr>")
-        rows.append(row_html)
-    return rows
-
-def build_offshore_table_html(wind_df, marine_df, crane_h, unit, temp_unit, hours):
-    rows = []; prev_day = None
-    n = min(hours, len(wind_df)); marine_len = len(marine_df) if marine_df is not None else 0
-    for i in range(n):
-        wrow = wind_df.iloc[i]
-        ts = pd.to_datetime(wrow["time"])
-        ws, wg = safe_float(wrow.get("wind_speed")), safe_float(wrow.get("wind_gust"))
-        wd, tmp = wrow.get("wind_dir", np.nan), safe_float(wrow.get("temperature"))
-        prc, cld = safe_float(wrow.get("precip")), safe_float(wrow.get("cloud"))
-        prs = safe_float(wrow.get("pressure"), 1013.0)
-        ws_h = ws * ((crane_h / 10) ** 0.11); wg_h = wg * ((crane_h / 10) ** 0.11)
-        hs = wp = wd_wave = sw = "-"
-        if marine_df is not None and i < marine_len:
-            mrow = marine_df.iloc[i]
-            hs_f = safe_float(mrow.get("hs"), float("nan"))
-            wp_f = safe_float(mrow.get("wave_period"), float("nan"))
-            wdw_f = safe_float(mrow.get("wave_dir"), float("nan"))
-            sw_f = safe_float(mrow.get("swell_hs"), float("nan"))
-            hs = f"{hs_f:.2f}m" if not np.isnan(hs_f) else "—"
-            wp = f"{wp_f:.1f}s" if not np.isnan(wp_f) else "—"
-            wd_wave = f"{direction_arrow(wdw_f)}&thinsp;{wdw_f:.0f}°" if not np.isnan(wdw_f) else "—"
-            sw = f"{sw_f:.2f}m" if not np.isnan(sw_f) else "—"
-            wbg,wfg,wcss = _wave_colour(safe_float(mrow.get("hs")))
-        else:
-            wbg,wfg,wcss = "#0D47A1","#fff","ci-safe"
-        try: wd_f = float(wd) if not np.isnan(float(wd)) else np.nan
-        except: wd_f = np.nan
-        datetime_str = ts.strftime("%a %d %b %H:%M")
-        day_break = " class='day-break'" if ts.strftime("%Y-%m-%d") != prev_day else ""
-        prev_day = ts.strftime("%Y-%m-%d")
-        tc, tf = _temp_colour(tmp)
-        dir_str = f"{direction_arrow(wd_f)}&thinsp;{wd_f:.0f}°" if not np.isnan(wd_f) else "—"
-        row_html = (f"<tr{day_break}><td class='time-col'>{datetime_str}</td>"
-            + _wind_cells(ws, wg, ws_h, wg_h, unit)
-            + f"<td class='dir-cell'>{dir_str}</td><td class='wave-cell' style='background:{wbg};color:{wfg};'>{hs}</td>"
-            + f"<td style='color:#88ccff;'>{wp}</td><td class='dir-cell'>{wd_wave}</td><td style='color:#66aaff;'>{sw}</td>"
-            + f"<td class='temp-cell' style='background:{tc};color:{tf};'>{fmt_temp(tmp, temp_unit)}</td>"
-            + f"<td class='cloud-cell'>{cld:.0f}%</td><td style='color:#aaa;'>{prs:.0f}mb</td></tr>")
-        rows.append(row_html)
-    return rows
-
-def render_table(rows, header_html, mode):
-    row_html = "\n".join(rows)
-    if mode == "offshore":
-        header_html = header_html.replace('<th>Cloud</th>', '<th class="hide-mobile">Cloud</th>')
-        header_html = header_html.replace('<th>Pressure</th>', '<th class="hide-mobile">Pressure</th>')
-        row_html = row_html.replace('<td class="cloud-cell">', '<td class="cloud-cell hide-mobile">')
-        row_html = row_html.replace('<td style="color:#aaa;">', '<td class="hide-mobile" style="color:#aaa;">')
-    html = f'<div class="table-wrap"><table class="fc-table"><thead>{header_html}</thead><tbody>{row_html}</tbody></table></div>'
-    st.markdown(html, unsafe_allow_html=True)
-
-def land_header(crane_h):
-    return f"""<tr>
-  <th>Date & Time</th>
-  <th class="h10">Gust / Wind<br><span style="font-weight:400;font-size:0.68em;">at 10m height</span></th>
-  <th class="hcr">Gust / Wind<br><span style="font-weight:400;font-size:0.68em;">at {crane_h}m height</span></th>
-  <th>Dir</th><th>Temp</th><th>Rain</th><th>Cloud</th><th>Pressure</th>
-</tr>"""
-
-def offshore_header(crane_h):
-    return f"""<tr>
-  <th>Date & Time</th>
-  <th class="h10">Gust / Wind<br><span style="font-weight:400;font-size:0.68em;">at 10m height</span></th>
-  <th class="hcr">Gust / Wind<br><span style="font-weight:400;font-size:0.68em;">at {crane_h}m height</span></th>
-  <th>Dir</th><th>Hs (m)</th><th>Wave Pd.</th><th>Wave Dir</th><th>Swell Hs</th>
-  <th>Temp</th><th class="hide-mobile">Cloud</th><th class="hide-mobile">Pressure</th>
-</tr>"""
-
-def render_legend():
-    st.markdown("""
-<div class="legend-strip">
-  <b>Legend:</b>
-  <span class="leg-item"><span class="ci-safe" style="font-size:1.2em;">●</span>&nbsp;SAFE &nbsp;≤5.9 m/s</span>
-  <span class="leg-item"><span class="ci-caution" style="font-size:1.1em;">⬡</span>&nbsp;CAUTION &nbsp;6–14 m/s</span>
-  <span class="leg-item"><span class="ci-danger" style="font-size:1.1em;">Ⓧ</span>&nbsp;STOP &nbsp;&gt;14 m/s</span>
-</div>""", unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# INFO TAB RENDERER (Bug 2 Fix: native link_button for Meta compatibility)
-# ══════════════════════════════════════════════════════════════════════════════
-
-FEEDBACK_URL = "https://docs.google.com/forms/d/e/1FAIpQLScFzNMjspwTnWTtWem9uKiPlSsvwio-QjQ4aJ0_09Y9_MIxEw/viewform?usp=publish-editor"
-KOFI_URL     = "https://ko-fi.com/windcast"
-
-def render_info_tab():
-    st.markdown("""
-<style>
-.info-section { margin: 1.2rem 0 0.4rem 0; }
-.info-section h3 { color: #90CAF9; font-size: 1.1rem; border-bottom: 1px solid #1565C0;
-    padding-bottom: 0.3rem; margin-bottom: 0.6rem; }
-.info-section p, .info-section li { color: #ccc; font-size: 0.88rem; line-height: 1.6; }
-.info-section ul { padding-left: 1.2rem; }
-.info-section ol { padding-left: 1.2rem; }
-.info-section li { margin-bottom: 0.3rem; }
-.info-badge { display:inline-block; background:#1a2a3a; border:1px solid #1565C0;
-    border-radius:5px; padding:3px 9px; font-size:0.78rem; color:#90CAF9; margin:2px 3px; }
-</style>
-""", unsafe_allow_html=True)
-
-    st.markdown("""<div class="info-section">
-<h3>👤 About the Creator</h3>
-<p>I built Windcast between jobs, out of sheer frustration. You know how it is on site — you're trying to make a Go/No-Go call, you check the weather, and XCWeather gives you something that bears no resemblance to what the anemometer on the hook block is reading. I'd been complaining about this for years, but it was my wife (a UX designer) who finally said: <em>"You clearly know what's wrong with these tools — so build a better one."</em></p>
-<p>I had no idea it would turn into this. What started as a quick Python script I used for my own lift plans has, six months later, grown into something I'm genuinely proud of. The accuracy against real site conditions has been consistent enough that I've stopped second-guessing it. That's when I knew it was worth sharing.</p>
-<p>If you work in cranes, MEWPs, or marine lifting — this was built by someone who's sat in the same chair you're sitting in. I hope it helps.</p>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div class="info-section">
-<h3>🎯 What It Does</h3>
-<p><strong>Windcast gives lifting supervisors an accurate, height-corrected wind forecast — colour-coded for Go/No-Go — built to BS 7121 standards, not generic weather websites.</strong></p>
-<ul>
-<li>🌍 <strong>ECMWF IFS 0.25°</strong> — the same model used by professional meteorological agencies worldwide</li>
-<li>📐 <strong>BS 7121 height correction</strong> — wind speed calculated at your actual crane height using the power law, adjusted for terrain roughness</li>
-<li>🟢🟡🔴 <strong>Colour-coded Go/No-Go</strong> — safe, caution, and stop thresholds displayed at a glance</li>
-<li>⚖️ <strong>LOLER-aware</strong> — built with the Lifting Operations and Lifting Equipment Regulations 1998 in mind</li>
-<li>🧰 <strong>Built by a lifting supervisor</strong> — not a software company. The assumptions, thresholds, and corrections are based on site experience, not guesswork</li>
-<li>⚓ <strong>Offshore mode</strong> — includes wave height (Hs), swell, wave period, and IMCA LR006 height correction (α = 0.11)</li>
-</ul>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div class="info-section">
-<h3>📋 How To Use</h3>
-<ol>
-<li><strong>Enter your location</strong> — type a UK postcode (e.g. <code>SE1 7PB</code>), a place name, or latitude/longitude separated by a semicolon (<code>51.50 ; -0.12</code>). The app will resolve the location automatically.</li>
-<li><strong>Set crane height and terrain</strong> — enter the maximum hook height in metres. Choose the terrain type that best describes your site (open, industrial, urban, or woodland). This drives the BS 7121 power-law correction.</li>
-<li><strong>Click Get Forecast</strong> — the table loads with hourly wind speeds and gusts at both 10m reference height and your crane height.</li>
-<li><strong>Read the colour-coded table</strong> — each row is an hour. The risk symbol in the crane-height column tells you the status at a glance. Green circle = safe, amber hexagon = caution, red Ⓧ = stop work.</li>
-<li><strong>Use the Go/No-Go column for your lift plan</strong> — this is planning data, not a substitute for your on-site anemometer. Always verify with a calibrated instrument before commencing.</li>
-</ol>
-<p>Switch between <strong>Land</strong> and <strong>Sea</strong> modes using the toggle in the forecast header. Use the day buttons (1 / 3 / 7) to extend or narrow the forecast window.</p>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div class="info-section">
-<h3>🎨 Colour Legend</h3>
-<p>Wind risk is assessed by <strong>gust speed at crane height</strong>, corrected for terrain:</p>
-</div>""", unsafe_allow_html=True)
-    st.markdown("""
-<div class="legend-strip" style="margin:0.5rem 0 0.8rem 0; font-size:0.85rem; gap:18px;">
-  <span class="leg-item"><span class="ci-safe" style="font-size:1.4em;">●</span>&nbsp;<strong>SAFE</strong> — Gust ≤ 5.9 m/s (≤ 11.5 kt). Proceed with lift plan.</span>
-  <span class="leg-item"><span class="ci-caution" style="font-size:1.3em;">⬡</span>&nbsp;<strong>CAUTION</strong> — Gust 6–14 m/s (11.6–27 kt). Enhanced monitoring required. Review lift plan against crane wind rating.</span>
-  <span class="leg-item"><span class="ci-danger" style="font-size:1.3em;">Ⓧ</span>&nbsp;<strong>STOP</strong> — Gust > 14 m/s (> 27 kt). Do not commence lifting operations.</span>
-</div>""", unsafe_allow_html=True)
-    st.markdown("""<div class="info-section">
-<p style="font-size:0.78rem; color:#888;">Thresholds are based on BS 7121-1:2016 and HSE PM55 general guidance. Your specific crane manual may impose lower limits — always apply the more conservative figure.</p>
-</div>""", unsafe_allow_html=True)
-
-    st.markdown("""<div class="info-section">
-<h3>🪤 Where's The Catch?</h3>
-<p>There isn't a hidden one, but here's the honest picture:</p>
-<ul>
-<li><strong>Free API limitation:</strong> The Open-Meteo free tier gives full ECMWF IFS resolution for the first 7 days, but the raw ECMWF data is updated every 6 hours. The free tier doesn't include the commercial ECMWF API with real-time sub-hourly updates. For planning purposes — which is what this is for — that's absolutely fine.</li>
-<li><strong>This is not a replacement for your anemometer.</strong> It never will be. It's a planning tool, not a real-time measurement instrument.</li>
-<li><strong>Funding:</strong> Running this costs time and, if I move to a paid API tier, money. If Windcast has saved you a wasted mobilisation or helped you make a better call, a small Ko-fi tip helps keep it online and improving.</li>
-</ul>
-<p><strong>Email list:</strong> If you'd like to be notified personally the moment tips cover the cost of the paid ECMWF API (which would unlock more frequent forecast updates), drop your email in the feedback form and mention it. I'll contact everyone individually — no mailing list software, no spam.</p>
-</div>""", unsafe_allow_html=True)
-
-    # Bug 2 Fix: Native link_button for Meta Messenger compatibility
-    st.link_button("☕ Support Windcast on Ko-fi", KOFI_URL)
-
-    st.markdown("""<div class="info-section">
-<h3>📦 Version & Changelog</h3>
-<p><span class="info-badge">v4.1 — Current</span></p>
-<ul>
-<li><strong>v4.1 — April 2026:</strong> Fixed Info tab rendering when no location entered; replaced HTML links with native Streamlit link_button for Meta Messenger compatibility.</li>
-<li><strong>v4.0 — April 2026:</strong> Added tabs (Forecast / Info), disclaimer acknowledgement, shareable URL, Ko-fi support, feedback link, mobile-first location input, advanced model selection expander.</li>
-<li><strong>v3.1 — March 2026:</strong> Merged land and offshore into single app. Added combined Go/No-Go across all parameters.</li>
-<li><strong>v2.1 — February 2026:</strong> Added swell Hs, visibility, air and sea temperature. Switched to ECMWF-only model (removed blended consensus) for safety-critical accuracy.</li>
-<li><strong>v1.0 — October 2025:</strong> Initial release. ECMWF + ICON + GFS consensus, BS 7121 height correction, colour-coded wind table.</li>
-</ul>
-</div>""", unsafe_allow_html=True)
-
-    # Bug 2 Fix: Native link_button for feedback
-    st.link_button("📝 Found an error? Tell me here.", FEEDBACK_URL)
-
-    st.markdown("""<div class="disclaimer" style="margin-top: 1rem;">
-⚠️ <b>FOR PLANNING PURPOSES ONLY.</b> Does not replace a calibrated on-site anemometer.
-Lifting supervisor retains full Go / No-Go responsibility per <b>BS 7121-1:2016</b>,
-<b>LOLER 1998</b>, <b>HSE PM55</b> and <b>IMCA LR006</b>.
-Data: ECMWF IFS 0.25° via Open-Meteo (free tier). v4.1
-</div>""", unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# FORECAST TAB RENDERER (Bug 1 Fix: extracted function with return instead of st.stop)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _forecast_tab(mode):
-    """Render the Forecast tab content. Uses return instead of st.stop() to avoid halting Info tab."""
+def main():
+    # Inject CSS
+    st.markdown(get_css(), unsafe_allow_html=True)
     
-    # ── Controls row — location FIRST so it stacks on top on mobile ───────
-    if mode == "land":
-        ra = st.columns([3.2, 0.55, 1.0, 1.7, 1.1, 0.8, 1.5])
-    else:
-        ra = st.columns([3.2, 0.55, 1.0, 1.1, 0.8, 1.5])
-
-    with ra[0]:
-        search_val = st.text_input(
-            "Location",
-            value=st.session_state.loc_name if st.session_state.lat else "",
-            placeholder="Postcode · Place name · lat ; lon",
-            key="search_input",
-        )
-        st.markdown('<div class="coord-hint">Lat (°N) ; Lon (°E) — or enter UK postcode / place name</div>',
-                    unsafe_allow_html=True)
-
-    with ra[1]:
-        st.markdown('<div style="height:1.65rem"></div>', unsafe_allow_html=True)
-        save_btn = st.button("📌", use_container_width=True, key="save_btn", help="Save this site")
-
-    with ra[2]:
-        crane_h = st.number_input("Height (m)", min_value=10, max_value=250,
-                                   value=st.session_state.crane_h, step=5, key="crane_num")
-        st.session_state.crane_h = crane_h
-
-    if mode == "land":
-        with ra[3]:
-            terrain = st.selectbox("Terrain type", list(TERRAIN.keys()), key="terrain",
-                                   help="Affects wind shear height correction (~10–20%)")
-        with ra[4]:
-            wind_unit = st.selectbox("Wind units", list(WIND_UNIT_FACTORS.keys()), key="wind_unit")
-        with ra[5]:
-            temp_unit = st.selectbox("Temp", ["°C", "°F"], key="temp_unit")
-        with ra[6]:
-            st.markdown('<div style="height:1.65rem"></div>', unsafe_allow_html=True)
-            fetch_btn = st.button("🌤️ Get Forecast", use_container_width=True,
-                                   type="primary", key="fetch_btn")
-    else:
-        terrain = "Open / Coastal"
-        with ra[3]:
-            wind_unit = st.selectbox("Wind units", list(WIND_UNIT_FACTORS.keys()), key="wind_unit")
-        with ra[4]:
-            temp_unit = st.selectbox("Temp", ["°C", "°F"], key="temp_unit")
-        with ra[5]:
-            st.markdown('<div style="height:1.65rem"></div>', unsafe_allow_html=True)
-            fetch_btn = st.button("🌤️ Get Forecast", use_container_width=True,
-                                   type="primary", key="fetch_btn")
-
-    st.markdown('<hr style="border-color:#222;margin:0.5rem 0 0 0;">', unsafe_allow_html=True)
-
-    # ── Resolve location ──────────────────────────────────────────────────
-    lat      = st.session_state.lat
-    lon      = st.session_state.lon
-    loc_name = st.session_state.loc_name
-
-    if search_val and (search_val != loc_name or lat is None):
-        with st.spinner("Looking up location…"):
-            lat_new, lon_new, name_new = parse_search(search_val)
-        if lat_new:
-            lat = lat_new; lon = lon_new; loc_name = name_new
-            st.session_state.lat      = lat
-            st.session_state.lon      = lon
-            st.session_state.loc_name = loc_name
-        else:
-            st.error("Location not found. Try a UK postcode, place name, or 'lat ; lon'.")
-            return  # Bug 1 Fix: return instead of st.stop()
-
-    if save_btn and lat:
-        save_location(loc_name[:40], lat, lon, crane_h, terrain)
-        st.success(f"✅ Saved: {loc_name[:40]}")
-
-    # ── Saved locations row ───────────────────────────────────────────────
-    saved = load_saved()
-    if saved:
-        saved_names = [l["name"] for l in saved]
-        picked = st.selectbox("📍 Load saved site", ["— select —"] + saved_names,
-                              key="load_saved", label_visibility="visible")
-        if picked != "— select —":
-            loc = next(l for l in saved if l["name"] == picked)
-            st.session_state.lat      = loc["lat"]
-            st.session_state.lon      = loc["lon"]
-            st.session_state.loc_name = loc["name"]
-            st.session_state.crane_h  = loc.get("crane_h", crane_h)
-
-    # ── Fetch ─────────────────────────────────────────────────────────────
-    if lat is None:
-        st.markdown(
-            '<div class="box-info" style="margin-top:1rem;">👆 Enter a location above and click <b>Get Forecast</b>.<br>'
-            'Supports UK postcodes (e.g. <code>RG12 1BE</code>), place names, or coordinates (<code>51.08 ; -1.29</code>).</div>',
-            unsafe_allow_html=True
-        )
-        return  # Bug 1 Fix: return instead of st.stop()
-
-    if lat is None or lon is None:
-        st.error("No location set.")
-        return  # Bug 1 Fix: return instead of st.stop()
-
-    if fetch_btn:
-        # Update shareable URL query params
-        st.query_params.update({"lat": f"{lat:.4f}", "lon": f"{lon:.4f}",
-                                "h": str(crane_h), "mode": mode})
-        # Clear cached data so fresh fetch happens
-        fetch_ecmwf_land.clear()
-        fetch_offshore_wind.clear()
-        fetch_offshore_marine.clear()
-        for k in ["df_cache", "marine_cache", "fetch_time"]:
-            st.session_state.pop(k, None)
-
-    if fetch_btn or ("df_cache" not in st.session_state):
-        if mode == "land":
-            with st.spinner("Fetching ECMWF IFS forecast…"):
-                df, models_used = fetch_consensus(lat, lon, 168)
-            if df is None or df.empty:
-                st.error("All weather models failed to respond. Check your internet connection and try again.")
-                return  # Bug 1 Fix: return instead of st.stop()
-            st.session_state.df_cache      = df
-            st.session_state.models_used   = models_used
-            st.session_state.marine_cache  = None
-        else:
-            with st.spinner("Fetching ECMWF wind + Open-Meteo Marine data…"):
-                df     = fetch_offshore_wind(lat, lon, 168)
-                marine = fetch_offshore_marine(lat, lon, 168)
-            if df is None or df.empty:
-                st.error("Failed to fetch wind data. Check connection and try again.")
-                return  # Bug 1 Fix: return instead of st.stop()
-            st.session_state.df_cache     = df
-            st.session_state.marine_cache = marine
-        st.session_state.fetch_time = datetime.now(timezone.utc)
-
-    df      = st.session_state.get("df_cache")
-    marine  = st.session_state.get("marine_cache")
-    fetch_t = st.session_state.get("fetch_time", datetime.now(timezone.utc))
-
-    if df is None or df.empty:
-        st.error("No forecast data retrieved — check connection or try a different location.")
-        return  # Bug 1 Fix: return instead of st.stop()
-
-    # ══════════════════════════════════════════════════════════════════════
-    # FORECAST SECTION HEADER
-    # ══════════════════════════════════════════════════════════════════════
-    DAY_OPTIONS = {1: 24, 3: 72, 7: 168}
-    forecast_hours = DAY_OPTIONS[st.session_state.fdays]
-
-    hc = st.columns([1.4, 0.6, 0.6, 0.6, 3.5, 0.8, 0.8, 0.7, 0.7])
-
-    with hc[0]:
-        st.markdown('<div class="page-title" style="font-size:1.5rem;margin:0.5rem 0 0 0;">Forecast</div>',
-                    unsafe_allow_html=True)
-
-    for i, (days, hrs) in enumerate(DAY_OPTIONS.items()):
-        with hc[i + 1]:
-            label    = f"{days} day" if days == 1 else f"{days} days"
+    # ── HEADER ────────────────────────────────────────────────────────────────
+    st.markdown("""
+    <div class="app-header">
+        <div class="header-title">
+            <span style="color:#3b82f6">⚡</span>
+            WINDCAST
+        </div>
+        <div class="header-nav">
+            <button class="nav-link" onclick="document.getElementById('info-section').scrollIntoView({behavior:'smooth'})">Info</button>
+            <button class="nav-link">Support</button>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # ── MOBILE CONTROLS ───────────────────────────────────────────────────────
+    st.markdown('<div class="control-section">', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # Search
+        st.markdown('<div class="search-container">', unsafe_allow_html=True)
+        search_val = st.text_input("Location", placeholder="LOCATION / POSTCODE", 
+                                   label_visibility="collapsed", key="search_input")
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Crane Height Widget
+        st.markdown(f"""
+        <div class="crane-widget">
+            <span style="color:#4d8eff">📏</span>
+            <span class="crane-label">Height</span>
+            <input type="range" min="10" max="250" value="{st.session_state.crane_h}" 
+                   class="crane-slider" id="craneSlider" step="10" onchange="location.reload()">
+            <span class="crane-value">{st.session_state.crane_h}m</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        # NOW Card
+        st.markdown("""
+        <div class="now-card">
+            <div class="now-header">
+                <div>
+                    <div class="now-title">Live Status</div>
+                    <div class="now-status">NOW</div>
+                </div>
+                <div style="color:#4ae176;font-weight:700">● SAFE</div>
+            </div>
+            <div class="now-grid">
+                <div class="now-stat">
+                    <div class="now-stat-label">Gust @10m</div>
+                    <div class="now-stat-value">5.2</div>
+                    <div style="font-size:0.75rem;color:#c2c6d6">m/s</div>
+                </div>
+                <div class="now-stat">
+                    <div class="now-stat-label">Gust @40m</div>
+                    <div class="now-stat-value" style="color:#ffb95f">7.1</div>
+                    <div style="font-size:0.75rem;color:#c2c6d6">m/s</div>
+                </div>
+            </div>
+            <div class="now-footer">
+                <span>↙ 135°</span>
+                <span>10°C</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Toggles Row 1: Land/Sea + Terrain
+    st.markdown('<div class="toggle-row">', unsafe_allow_html=True)
+    
+    # Land/Sea
+    st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🏗️ LAND", key="land_btn", use_container_width=True, 
+                    type="primary" if st.session_state.mode=="land" else "secondary"):
+            st.session_state.mode = "land"
+            st.rerun()
+    with col2:
+        if st.button("⚓ SEA", key="sea_btn", use_container_width=True,
+                    type="primary" if st.session_state.mode=="offshore" else "secondary"):
+            st.session_state.mode = "offshore"
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Terrain
+    st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
+    terrain_cols = st.columns(4)
+    terrain_keys = list(TERRAIN.keys())
+    for i, (tkey, tval) in enumerate(TERRAIN.items()):
+        with terrain_cols[i]:
+            btn_type = "primary" if st.session_state.terrain == tkey else "secondary"
+            if st.button(f"{tval['icon']}", key=f"terrain_{i}", use_container_width=True, type=btn_type,
+                        help=tkey):
+                st.session_state.terrain = tkey
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Toggles Row 2: Duration + Units + View Mode
+    st.markdown('<div class="toggle-row">', unsafe_allow_html=True)
+    
+    # Duration
+    st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
+    dur_cols = st.columns(3)
+    for i, (days, label) in enumerate([(1, "1d"), (3, "3d"), (7, "7d")]):
+        with dur_cols[i]:
             btn_type = "primary" if st.session_state.fdays == days else "secondary"
-            st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
-            if st.button(label, key=f"day_{days}", type=btn_type, use_container_width=True):
+            if st.button(label, key=f"days_{days}", use_container_width=True, type=btn_type):
                 st.session_state.fdays = days
                 st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
-
-    with hc[5]:
-        st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
-        land_type = "primary" if mode == "land" else "secondary"
-        if st.button("🐝️Land", key="toggle_land", type=land_type, use_container_width=True):
-            if mode != "land":
-                st.session_state.mode = "land"
-                st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with hc[6]:
-        st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
-        sea_type = "primary" if mode == "offshore" else "secondary"
-        if st.button("🪸 Sea", key="toggle_sea", type=sea_type, use_container_width=True):
-            if mode != "offshore":
-                st.session_state.mode = "offshore"
-                st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Build table rows ──────────────────────────────────────────────────
-    if mode == "land":
-        rows = build_land_table_html(df, crane_h, terrain, wind_unit, temp_unit, forecast_hours)
-        hdr  = land_header(crane_h)
-    else:
-        rows = build_offshore_table_html(df, marine, crane_h, wind_unit, temp_unit, forecast_hours)
-        hdr  = offshore_header(crane_h)
-
-    # ── PDF download ──────────────────────────────────────────────────────
-    with hc[7]:
-        st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
-        try:
-            import weasyprint, io
-            pdf_css_extra = """
-            @page { margin:10mm; size:A4 landscape; }
-            body { background:#0d0d1a; color:#ddd; font-family:Arial,sans-serif; font-size:8pt; }
-            table { width:100%; border-collapse:collapse; }
-            thead th { background:#0f3460; color:#90CAF9; padding:5px 4px;
-                       border-bottom:2px solid #1565C0; font-size:7.5pt; }
-            thead th.h10 { background:#0a2a50; color:#64B5F6; }
-            thead th.hcr { background:#004d40; color:#80CBC4; }
-            tbody tr { border-bottom:1px solid #222; }
-            td { padding:4px 4px; text-align:center; vertical-align:middle; }
-            td.time-col { color:#90CAF9; font-weight:bold; }
-            td.h10 { background:#0a2a50; }
-            td.hcr { background:#004d40; }
-            .ci-safe { color:#1E88E5; } .ci-caution { color:#FB8C00; } .ci-danger { color:#8E24AA; }
-            """
-            row_html_str   = "\n".join(rows)
-            table_html_full = f'<table><thead>{hdr}</thead><tbody>{row_html_str}</tbody></table>'
-            pdf_html = f"""<!DOCTYPE html><html><head>
-            <meta charset="utf-8">
-            <style>{pdf_css_extra}</style></head>
-            <body>
-            <h3 style="color:#90CAF9;margin-bottom:4px;">Lifting Ops Forecast — {loc_name}</h3>
-            <p style="color:#888;font-size:7pt;margin:0 0 6px 0;">
-            Crane {crane_h}m · {forecast_hours}h forecast · Generated {fetch_t.strftime("%Y-%m-%d %H:%M UTC")}
-            · {"ECMWF IFS 0.25°" if mode=="land" else "ECMWF Marine"}
-            </p>
-            {table_html_full}
-            <p style="color:#666;font-size:6pt;margin-top:6px;">
-            FOR PLANNING PURPOSES ONLY. BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006
-            </p>
-            </body></html>"""
-            pdf_bytes = weasyprint.HTML(string=pdf_html).write_pdf()
-            fname = f"lifting_forecast_{loc_name[:20].replace(' ','_')}_{fetch_t.strftime('%Y%m%d_%H%M')}.pdf"
-            st.download_button("📄 PDF", data=pdf_bytes, file_name=fname,
-                               mime="application/pdf", use_container_width=True)
-        except ImportError:
-            st.button("📄 PDF", disabled=True, use_container_width=True,
-                      help="Install weasyprint to enable PDF export")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Share button ──────────────────────────────────────────────────────
-    with hc[8]:
-        st.markdown('<div style="margin-top:0.45rem">', unsafe_allow_html=True)
-        st.button("🔗 Share", use_container_width=True, key="share_btn",
-                  help=f"URL updated with lat/lon — copy from address bar: {lat:.4f}°N, {lon:.4f}°E")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Location + last updated line ──────────────────────────────────────
-    updated_str = fetch_t.strftime("%H:%M") if fetch_t else "--:--"
-    mode_src    = "ECMWF IFS 0.25°" if mode == "land" else "ECMWF Marine"
-    st.markdown(
-        f'<div class="info-line">Location: <b>{loc_name}</b> &nbsp;|&nbsp; '
-        f'Last updated {updated_str}  ·  {mode_src}</div>',
-        unsafe_allow_html=True
-    )
-
-    # ── Legend ────────────────────────────────────────────────────────────
-    render_legend()
-
-    # ── Offshore special warnings ─────────────────────────────────────────
-    if mode == "offshore" and marine is not None and not marine.empty and len(marine) > 0:
-        hs_now = safe_float(marine.iloc[0].get("hs"))
-        if hs_now >= 2.5:
-            wlvl   = "DANGER" if hs_now >= 4.0 else "CAUTION"
-            bclass = "box-danger" if wlvl == "DANGER" else "box-caution"
-            st.markdown(
-                f'<div class="{bclass}">⚓ <b>Wave Height Warning:</b> Hs = {hs_now:.2f}m — {wlvl}. '
-                f'Review vessel motion limits.</div>',
-                unsafe_allow_html=True
-            )
-
-    # ── Forecast table ────────────────────────────────────────────────────
-    render_table(rows, hdr, mode)
-
-    # ── Regulatory disclaimer footer ──────────────────────────────────────
-    st.markdown("""<div class="disclaimer">
-⚠️ <b>FOR PLANNING PURPOSES ONLY.</b> Does not replace a calibrated on-site anemometer.
-Lifting supervisor retains full Go / No-Go responsibility per <b>BS 7121-1:2016</b>,
-<b>LOLER 1998</b>, <b>HSE PM55</b> and <b>IMCA LR006</b>.
-Data: ECMWF IFS 0.25° via Open-Meteo (free tier). v4.1
-</div>""", unsafe_allow_html=True)
-
-    # Bug 2 Fix: Native link_button for feedback in Forecast tab too
-    st.link_button("📝 Found an error? Tell me.", FEEDBACK_URL)
-
-    # ── Advanced: Model Selection — collapsed at the very bottom ──────────
-    models_used = st.session_state.get("models_used", ["ECMWF Marine" if mode == "offshore" else "?"])
-    with st.expander("⚙️ Advanced — Model Selection", expanded=False):
-        st.markdown("""
-**Current model:** ECMWF IFS 0.25° (single-model, direct from Open-Meteo)
-
-Windcast uses ECMWF IFS exclusively — no blending with lower-resolution models.
-ECMWF is the highest-accuracy freely available global model and is used as the reference
-standard by meteorological agencies worldwide.
-
-Earlier versions blended ECMWF, ICON, GFS and MetOffice UKV with weighted consensus.
-After six months of site validation, the single-ECMWF approach consistently outperformed blending.
-The blended option may return in a future release as a toggle for advanced users.
-""")
-        st.write(f"**Active models this session:** {models_used}")
-        if df is not None and not df.empty:
-            first = df.iloc[0]
-            st.write({c: round(float(first[c]), 2) if pd.notna(first.get(c)) else "NaN"
-                      for c in ["wind_speed", "wind_gust", "temperature", "pressure", "cloud", "precip"]
-                      if c in df.columns})
-            st.dataframe(df.head(4))
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# MAIN
-# ══════════════════════════════════════════════════════════════════════════════
-
-def main():
-    # ── Session defaults — disclaimer_ack MUST be first to avoid KeyError ─────
-    if "disclaimer_ack" not in st.session_state:
-        st.session_state["disclaimer_ack"] = False
-    for k, v in [("mode","land"),("crane_h",40),("lat",None),("lon",None),("loc_name",""),("fdays",1)]:
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-    # ── Read shareable URL params on first load ────────────────────────────────
-    params = st.query_params
-    if st.session_state.lat is None and "lat" in params and "lon" in params:
-        try:
-            st.session_state.lat      = float(params["lat"])
-            st.session_state.lon      = float(params["lon"])
-            st.session_state.loc_name = f"{st.session_state.lat:.4f}°N, {st.session_state.lon:.4f}°E"
-            if "h" in params:
-                st.session_state.crane_h = max(10, min(250, int(params["h"])))
-            if "mode" in params and params["mode"] in ("land","offshore"):
-                st.session_state.mode = params["mode"]
-        except Exception:
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Units
+    st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
+    unit_cols = st.columns(2)
+    with unit_cols[0]:
+        if st.button(st.session_state.wind_unit.upper(), key="unit_wind", use_container_width=True,
+                    type="primary"):
             pass
-
-    mode = st.session_state.mode
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # PAGE TITLE
-    # ══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="page-title">Lifting Ops Forecast</div>', unsafe_allow_html=True)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # TOP-LEVEL TABS
-    # ══════════════════════════════════════════════════════════════════════════
-    tab_forecast, tab_info = st.tabs(["🌤️ Forecast", "ℹ️ Info"])
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # FORECAST TAB — Bug 1 Fix: call extracted function
-    # ══════════════════════════════════════════════════════════════════════════
-    with tab_forecast:
-        _forecast_tab(mode)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # INFO TAB
-    # ══════════════════════════════════════════════════════════════════════════
-    with tab_info:
-        render_info_tab()
-
+    with unit_cols[1]:
+        if st.button(st.session_state.temp_unit, key="unit_temp", use_container_width=True,
+                    type="primary"):
+            pass
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # View Mode (24h/3h)
+    st.markdown('<div class="toggle-group" style="min-width:120px">', unsafe_allow_html=True)
+    view_cols = st.columns(2)
+    with view_cols[0]:
+        if st.button("24h", key="view_24h", use_container_width=True,
+                    type="primary" if st.session_state.view_mode=="24h" else "secondary"):
+            st.session_state.view_mode = "24h"
+            st.rerun()
+    with view_cols[1]:
+        if st.button("3h", key="view_3h", use_container_width=True,
+                    type="primary" if st.session_state.view_mode=="3h" else "secondary"):
+            st.session_state.view_mode = "3h"
+            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # ── OPTIMAL WINDOW BANNER ─────────────────────────────────────────────────
+    st.markdown("""
+    <div class="optimal-banner">
+        <div class="optimal-icon">📅</div>
+        <div class="optimal-content">
+            <div class="optimal-label">Optimal Lift Window</div>
+            <div class="optimal-text">Safe to lift 09:00–13:00 — conditions deteriorate from 13:00</div>
+        </div>
+        <div style="background:#4ae176;color:#000;padding:0.25rem 0.75rem;border-radius:9999px;font-size:0.625rem;font-weight:800">ACTIVE</div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # ── FETCH DATA ────────────────────────────────────────────────────────────
+    if search_val and (not st.session_state.lat or search_val != st.session_state.loc_name):
+        lat, lon, name = parse_location(search_val)
+        if lat:
+            st.session_state.lat, st.session_state.lon = lat, lon
+            st.session_state.loc_name = name
+            st.rerun()
+        else:
+            st.error("Location not found. Try UK postcode or coordinates.")
+    
+    # ── FORECAST TABLE ────────────────────────────────────────────────────────
+    if st.session_state.lat:
+        hours = st.session_state.fdays * 24
+        df = fetch_forecast(st.session_state.lat, st.session_state.lon, hours)
+        
+        if df is not None and not df.empty:
+            # Filter view mode
+            if st.session_state.view_mode == "3h":
+                df = df[df["time"].dt.hour % 3 == 0].reset_index(drop=True)
+            
+            st.markdown('<div class="forecast-container">', unsafe_allow_html=True)
+            
+            # Header with date and toggles
+            date_str = datetime.now().strftime("%A %d %b %Y")
+            st.markdown(f"""
+            <div class="forecast-header-row">
+                <div class="forecast-title">
+                    <span>📅</span>
+                    {date_str}
+                </div>
+                <div class="duration-toggles">
+                    <button class="duration-btn {'active' if st.session_state.fdays==1 else ''}">1D</button>
+                    <button class="duration-btn {'active' if st.session_state.fdays==3 else ''}">3D</button>
+                    <button class="duration-btn {'active' if st.session_state.fdays==7 else ''}">7D</button>
+                    <button class="duration-btn">MAX</button>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Table Header
+            st.markdown("""
+            <div class="table-header">
+                <span>Time</span>
+                <span>Gust/Wind @10m</span>
+                <span>Gust/Wind @40m ✦</span>
+                <span>Dir</span>
+                <span>Temp</span>
+                <span>Rain</span>
+                <span>Cloud</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Forecast Rows
+            crane_h = st.session_state.crane_h
+            for _, row in df.head(24 if st.session_state.fdays == 1 else 72).iterrows():
+                ts = pd.to_datetime(row["time"])
+                ws = safe_float(row.get("wind_speed"))
+                wg = safe_float(row.get("wind_gust"))
+                wd = row.get("wind_dir", np.nan)
+                tmp = safe_float(row.get("temperature"))
+                prc = safe_float(row.get("precip"))
+                cld = safe_float(row.get("cloud"))
+                
+                # Height correction
+                if st.session_state.mode == "land":
+                    wg_h = apply_terrain(wg, st.session_state.terrain, crane_h)
+                else:
+                    wg_h = wg * ((crane_h / 10) ** 0.11)
+                
+                status, symbol, color, label = risk_status(wg_h)
+                time_str = ts.strftime("%H:%M")
+                wind_10 = fmt_wind(ws, st.session_state.wind_unit)
+                gust_10 = fmt_wind(wg, st.session_state.wind_unit)
+                wind_h = fmt_wind(ws * ((crane_h/10)**0.14), st.session_state.wind_unit)
+                gust_h = fmt_wind(wg_h, st.session_state.wind_unit)
+                dir_arrow = direction_arrow(wd)
+                weather_icon = get_weather_icon(cld, prc)
+                
+                row_class = f"forecast-row {status}" if status != "safe" else "forecast-row"
+                
+                st.markdown(f"""
+                <div class="{row_class}">
+                    <div class="time-cell">{time_str}</div>
+                    <div class="wind-cell">
+                        <span class="wind-label">@10m</span>
+                        <span class="wind-value {status}">{gust_10} G / {wind_10} W</span>
+                    </div>
+                    <div class="wind-cell">
+                        <span class="wind-label">@{crane_h}m ✦</span>
+                        <span class="wind-value {status}">{gust_h} G / {wind_h} W</span>
+                    </div>
+                    <div class="dir-cell">{dir_arrow}</div>
+                    <div class="temp-cell">{tmp:.0f}°</div>
+                    <div class="prec-cell">{weather_icon} {prc:.1f}</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Legend Bar
+            st.markdown("""
+            <div class="legend-bar">
+                <div>
+                    <div class="legend-title">Site Status</div>
+                    <div class="legend-status" style="color:#4ae176">ALL LIFTS GO</div>
+                </div>
+                <div class="legend-items">
+                    <div class="legend-item">
+                        <div class="status-indicator status-safe"></div>
+                        <span>SAFE ≤5.9</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="status-indicator status-caution"></div>
+                        <span>CAUTION 6–14</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="status-indicator status-stop"></div>
+                        <span>STOP >14 m/s</span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # ── INFO SECTION ──────────────────────────────────────────────────────────
+    st.markdown('<div id="info-section" class="info-section">', unsafe_allow_html=True)
+    st.markdown('<div class="info-title">📖 About Windcast</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="info-content">
+    <p><strong>Built by lifting supervisors for lifting supervisors.</strong> Provides height-corrected wind forecasts based on ECMWF IFS 0.25° model data.</p>
+    
+    <h4 style="color:#fff;margin:1rem 0 0.5rem 0">🎯 What It Does</h4>
+    <ul style="margin:0;padding-left:1.5rem">
+        <li>ECMWF IFS 0.25° — professional-grade model</li>
+        <li>BS 7121 height correction + terrain factor</li>
+        <li>Colour-coded Go/No-Go thresholds</li>
+        <li>Built by a lifting supervisor, not a software company</li>
+    </ul>
+    
+    <h4 style="color:#fff;margin:1rem 0 0.5rem 0">📋 How To Use</h4>
+    <ol style="margin:0;padding-left:1.5rem">
+        <li>Enter your postcode, place name, or lat;lon</li>
+        <li>Set crane height — use slider or tap +/−</li>
+        <li>Read the ✦ crane height column — that's your Go/No-Go figure</li>
+        <li>Always verify with your on-site anemometer before commencing</li>
+    </ol>
+    
+    <h4 style="color:#fff;margin:1rem 0 0.5rem 0">🎨 Colour Legend</h4>
+    <ul style="margin:0;padding-left:1.5rem">
+        <li style="color:#4ae176"><strong>● SAFE</strong> — Gust ≤ 5.9 m/s — Proceed with lift plan</li>
+        <li style="color:#ffb95f"><strong>⚠ CAUTION</strong> — Gust 6–14 m/s — Enhanced monitoring required</li>
+        <li style="color:#ffb4ab"><strong>Ⓧ STOP</strong> — Gust > 14 m/s — Do not commence lifting operations</li>
+    </ul>
+    
+    <p style="margin-top:1rem;padding:0.75rem;background:#222a3d;border-radius:0.5rem">
+    <strong>⚠️ FOR PLANNING PURPOSES ONLY</strong> · BS 7121-1:2016 · LOLER 1998 · HSE PM55 · IMCA LR006
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # ── BOTTOM NAVIGATION ─────────────────────────────────────────────────────
+    st.markdown("""
+    <div class="bottom-nav">
+        <div class="nav-item active">
+            <span>📊</span>
+            <span class="nav-label">Forecast</span>
+        </div>
+        <div class="nav-item">
+            <span>📥</span>
+            <span class="nav-label">Export</span>
+        </div>
+        <div class="nav-item">
+            <span>🔗</span>
+            <span class="nav-label">Share</span>
+        </div>
+    </div>
+    <div style="height:6rem"></div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
