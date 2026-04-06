@@ -959,7 +959,7 @@ def main():
                 st.session_state.loc_name = loc_name
             else:
                 st.error("Location not found. Try a UK postcode, place name, or 'lat ; lon'.")
-                st.stop()
+                return
 
         if save_btn and lat:
             save_location(loc_name[:40], lat, lon, crane_h, terrain)
@@ -985,11 +985,11 @@ def main():
                 'Supports UK postcodes (e.g. <code>RG12 1BE</code>), place names, or coordinates (<code>51.08 ; -1.29</code>).</div>',
                 unsafe_allow_html=True
             )
-            st.stop()
+            return
 
         if lat is None or lon is None:
             st.error("No location set.")
-            st.stop()
+            return
 
         if fetch_btn:
             # Update shareable URL query params
@@ -1008,7 +1008,7 @@ def main():
                     df, models_used = fetch_consensus(lat, lon, 168)
                 if df is None or df.empty:
                     st.error("All weather models failed to respond. Check your internet connection and try again.")
-                    st.stop()
+                    return
                 st.session_state.df_cache      = df
                 st.session_state.models_used   = models_used
                 st.session_state.marine_cache  = None
@@ -1018,7 +1018,7 @@ def main():
                     marine = fetch_offshore_marine(lat, lon, 168)
                 if df is None or df.empty:
                     st.error("Failed to fetch wind data. Check connection and try again.")
-                    st.stop()
+                    return
                 st.session_state.df_cache     = df
                 st.session_state.marine_cache = marine
             st.session_state.fetch_time = datetime.now(timezone.utc)
@@ -1029,7 +1029,7 @@ def main():
 
         if df is None or df.empty:
             st.error("No forecast data retrieved — check connection or try a different location.")
-            st.stop()
+            return
 
         # ══════════════════════════════════════════════════════════════════════
         # FORECAST SECTION HEADER
