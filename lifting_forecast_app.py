@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   WINDCAST — Precision Lifting Weather Forecast  v5.0                       ║
+║   WINDCAST — Precision Lifting Weather Forecast  v5.1                       ║
 ║   BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006                       ║
 ║   Source: ECMWF IFS 0.25° via Open-Meteo (free tier)                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -11,16 +11,13 @@ import requests, json, os, re
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone, timedelta
-import qrcode
-from io import BytesIO
-from suntime import Sun
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE CONFIG
 # ══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="Windcast",
-    page_icon="🌤️",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -28,77 +25,50 @@ st.set_page_config(
 # ══════════════════════════════════════════════════════════════════════════════
 # SESSION STATE INIT
 # ══════════════════════════════════════════════════════════════════════════════
-if "disclaimer_ack" not in st.session_state:
-    st.session_state.disclaimer_ack = False
 for k, v in [("mode", "land"), ("crane_h", 40), ("lat", None), ("lon", None), 
              ("loc_name", ""), ("fdays", 1), ("wind_unit", "m/s"), ("temp_unit", "°C"), 
-             ("terrain", "Open / Coastal"), ("theme", "system"), ("view_mode", "24h")]:
+             ("terrain", "Open / Coastal"), ("view_mode", "24h")]:
     if k not in st.session_state:
         st.session_state[k] = v
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CONSTANTS
+# RESPONSIVE CSS - FIXED BREAKPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
-WIND_UNIT_FACTORS = {
-    "m/s": (1.0, "m/s"),
-    "knots": (1.9438, "kt"),
-    "mph": (2.2369, "mph"),
-    "km/h": (3.6, "km/h"),
-    "Beaufort": (None, "Bft"),
-}
-
-TERRAIN = {
-    "Open / Coastal": {"alpha": 0.14, "factor": 1.00, "icon": "🏖️"},
-    "Industrial / Port": {"alpha": 0.22, "factor": 1.10, "icon": "🏭"},
-    "Urban / City": {"alpha": 0.28, "factor": 1.20, "icon": "🏙️"},
-    "Woodland / Forest": {"alpha": 0.20, "factor": 1.15, "icon": "🌲"},
-}
-
-# ══════════════════════════════════════════════════════════════════════════════
-# RESPONSIVE CSS
-# ══════════════════════════════════════════════════════════════════════════════
-def get_css():
-    return """
+st.markdown("""
 <style>
 /* ── Base Reset ── */
 #MainMenu, header, footer {visibility: hidden;}
 section[data-testid="stSidebar"] {display: none !important;}
-.main .block-container {padding: 0; max-width: 100%;}
-
-/* ── Theme Support ── */
-body.theme-light {background: #f8fafc; color: #1e293b;}
-body.theme-dark {background: #0b1326; color: #dae2fd;}
+.main .block-container {padding: 0.5rem; max-width: 100%;}
 
 /* ── Header ── */
 .app-header {
     background: #131b2e;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem 1.5rem;
     display: flex;
     justify-content: space-between;
     align-items: center;
     border-bottom: 1px solid #2d3449;
-    position: sticky;
-    top: 0;
-    z-index: 100;
 }
 .header-title {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     font-family: 'Space Grotesk', sans-serif;
-    font-size: 1.25rem;
+    font-size: 1.5rem;
     font-weight: 800;
     color: #fff;
     letter-spacing: 0.1em;
     text-transform: uppercase;
 }
-.header-nav {display: flex; gap: 1rem; align-items: center;}
+.header-nav {display: flex; gap: 1.5rem; align-items: center;}
 .nav-link {
     background: none;
     border: none;
     color: #94a3b8;
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
+    font-size: 0.875rem;
     cursor: pointer;
     padding: 0.25rem 0.5rem;
     border-radius: 0.375rem;
@@ -109,22 +79,25 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
 /* ── Control Section ── */
 .control-section {
     background: #171f33;
-    padding: 1rem;
+    padding: 1rem 1.5rem;
     margin: 1rem;
     border-radius: 0.75rem;
 }
 
 /* ── Search Container ── */
-.search-container {position: relative; margin-bottom: 0.75rem;}
+.search-container {
+    position: relative;
+    margin-bottom: 1rem;
+}
 .search-input {
     width: 100%;
     background: #222a3d;
     border: none;
     border-radius: 0.5rem;
-    padding: 0.75rem 3rem 0.75rem 1rem;
+    padding: 0.625rem 3rem 0.625rem 1rem;
     color: #dae2fd;
     font-family: 'Inter', sans-serif;
-    font-size: 0.9rem;
+    font-size: 0.875rem;
 }
 .search-btn {
     position: absolute;
@@ -134,8 +107,8 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
     background: #ee9800;
     border: none;
     border-radius: 0.375rem;
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 2.25rem;
+    height: 2.25rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -145,7 +118,7 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
 /* ── Crane Widget ── */
 .crane-widget {
     background: #222a3d;
-    padding: 0.75rem 1rem;
+    padding: 0.625rem 1rem;
     border-radius: 9999px;
     display: flex;
     align-items: center;
@@ -177,36 +150,29 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
 /* ── Toggle Rows ── */
 .toggle-row {
     display: flex;
-    gap: 0.5rem;
-    overflow-x: auto;
-    scrollbar-width: none;
-    margin-bottom: 0.5rem;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
 }
-.toggle-row::-webkit-scrollbar {display: none;}
 .toggle-group {
     background: #060e20;
     border-radius: 9999px;
     padding: 0.25rem;
     display: flex;
     flex: 1;
-    min-width: 100px;
-    height: 2.75rem;
+    height: 2.5rem;
     align-items: center;
 }
-.toggle-btn {
-    flex: 1;
-    border: none;
-    background: transparent;
-    color: #c2c6d6;
-    font-size: 0.75rem;
-    font-weight: 700;
-    border-radius: 9999px;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.toggle-btn.active {
-    background: #4d8eff;
-    color: #00285d;
+
+/* ── Streamlit Button Overrides ── */
+.stButton > button {
+    border: none !important;
+    border-radius: 9999px !important;
+    font-size: 0.75rem !important;
+    font-weight: 700 !important;
+    padding: 0.375rem 1rem !important;
+    height: auto !important;
+    min-height: unset !important;
+    transition: all 0.2s !important;
 }
 
 /* ── NOW Card ── */
@@ -214,7 +180,7 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
     background: #2d3449;
     padding: 1rem;
     border-radius: 0.75rem;
-    margin: 1rem;
+    margin-bottom: 1rem;
 }
 .now-header {
     display: flex;
@@ -271,7 +237,7 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
 .optimal-banner {
     background: rgba(74, 225, 118, 0.1);
     border: 1px solid rgba(74, 225, 118, 0.3);
-    padding: 1rem;
+    padding: 0.875rem 1rem;
     border-radius: 0.75rem;
     margin: 1rem;
     display: flex;
@@ -279,8 +245,8 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
     gap: 1rem;
 }
 .optimal-icon {
-    width: 2.5rem;
-    height: 2.5rem;
+    width: 2.25rem;
+    height: 2.25rem;
     background: rgba(74, 225, 118, 0.2);
     border-radius: 50%;
     display: flex;
@@ -334,7 +300,7 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
     border-radius: 9999px;
 }
 .duration-btn {
-    padding: 0.375rem 0.75rem;
+    padding: 0.375rem 0.875rem;
     border: none;
     background: transparent;
     color: #c2c6d6;
@@ -351,7 +317,7 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
 /* ── Forecast Table Header ── */
 .table-header {
     display: grid;
-    grid-template-columns: 3.5rem 1fr 1fr 2.5rem 2.5rem 2.5rem;
+    grid-template-columns: 3.5rem 1.2fr 1.2fr 2.5rem 2.5rem 2.5rem;
     padding: 0.5rem 1rem;
     background: #222a3d;
     font-size: 0.625rem;
@@ -365,19 +331,19 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
 /* ── Forecast Rows ── */
 .forecast-row {
     display: grid;
-    grid-template-columns: 3.5rem 1fr 1fr 2.5rem 2.5rem 2.5rem;
-    padding: 1rem;
+    grid-template-columns: 3.5rem 1.2fr 1.2fr 2.5rem 2.5rem 2.5rem;
+    padding: 0.875rem 1rem;
     border-bottom: 1px solid #2d3449;
     background: #131b2e;
     align-items: center;
 }
 .forecast-row:nth-child(even) {background: #060e20;}
 .forecast-row.caution {
-    background: rgba(255, 185, 95, 0.1);
+    background: rgba(255, 185, 95, 0.08);
     border-left: 3px solid #ffb95f;
 }
 .forecast-row.stop {
-    background: rgba(255, 180, 171, 0.1);
+    background: rgba(255, 180, 171, 0.08);
     border-left: 3px solid #ffb4ab;
 }
 
@@ -401,7 +367,7 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
 .wind-value {
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 800;
-    font-size: 1rem;
+    font-size: 0.9375rem;
 }
 .wind-value.safe {color: #4ae176;}
 .wind-value.caution {color: #ffb95f;}
@@ -411,16 +377,6 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
     font-size: 0.75rem;
     font-weight: 700;
 }
-.status-indicator {
-    width: 0.75rem;
-    height: 0.75rem;
-    border-radius: 50%;
-    margin: 0 auto;
-    box-shadow: 0 0 8px currentColor;
-}
-.status-safe {background: #4ae176; color: #4ae176;}
-.status-caution {background: #ffb95f; color: #ffb95f;}
-.status-stop {background: #ffb4ab; color: #ffb4ab;}
 
 /* ── Legend Bar ── */
 .legend-bar {
@@ -444,14 +400,22 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
     font-weight: 700;
     font-size: 0.875rem;
 }
-.legend-items {display: flex; gap: 1rem;}
+.legend-items {display: flex; gap: 1.25rem;}
 .legend-item {
     display: flex;
     align-items: center;
     gap: 0.375rem;
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 700;
 }
+.status-dot {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 50%;
+}
+.status-safe {background: #4ae176;}
+.status-caution {background: #ffb95f;}
+.status-stop {background: #ffb4ab;}
 
 /* ── Info Section ── */
 .info-section {
@@ -495,7 +459,7 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
     color: #64748b;
     cursor: pointer;
     transition: all 0.2s;
-    padding: 0.5rem 1.5rem;
+    padding: 0.5rem 2rem;
     border-radius: 9999px;
 }
 .nav-item.active {
@@ -510,79 +474,122 @@ body.theme-dark {background: #0b1326; color: #dae2fd;}
     letter-spacing: 0.1em;
 }
 
-/* ── Export/Share Modal ── */
-.modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.8);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 200;
-}
-.modal-content {
-    background: #171f33;
-    padding: 1.5rem;
-    border-radius: 1rem;
-    max-width: 90%;
-    width: 400px;
-}
-.modal-title {
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    font-size: 1.25rem;
-    color: #fff;
-    margin-bottom: 1rem;
-}
-.modal-option {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem;
-    background: #222a3d;
-    border-radius: 0.5rem;
-    margin-bottom: 0.5rem;
-    cursor: pointer;
-}
-.modal-option:hover {background: #2d3449;}
-
-/* ── Responsive ── */
-@media (max-width: 768px) {
-    .table-header, .forecast-row {
-        grid-template-columns: 3rem 1fr 2rem 2rem 2rem;
-    }
-    .wind-cell {flex-direction: row; gap: 0.25rem; align-items: baseline;}
-    .wind-label {display: none;}
-    .now-grid {grid-template-columns: 1fr;}
-    .legend-bar {flex-direction: column; gap: 1rem; align-items: flex-start;}
-    .header-title {font-size: 1rem;}
-}
-
-@media (min-width: 769px) {
-    .table-header, .forecast-row {
-        grid-template-columns: 4rem 1.5fr 1.5fr 3rem 3rem 3rem 3rem;
-    }
+/* ── DESKTOP STYLES (min-width: 1024px) ── */
+@media (min-width: 1024px) {
+    .main .block-container {padding: 1rem 2rem;}
     .control-section {
         display: grid;
-        grid-template-columns: 1fr 300px;
+        grid-template-columns: 1fr 320px;
+        gap: 1.5rem;
+        padding: 1.25rem 2rem;
+    }
+    .toggle-row {margin-bottom: 1rem;}
+    .toggle-group {min-width: unset;}
+    .table-header, .forecast-row {
+        grid-template-columns: 4rem 1.5fr 1.5fr 3rem 3rem 3rem;
+    }
+    .wind-value {font-size: 1rem;}
+    .header-title {font-size: 1.75rem;}
+    .forecast-container {margin: 1rem 2rem;}
+    .legend-bar {margin: 1rem 2rem;}
+    .info-section {margin: 1rem 2rem;}
+    .optimal-banner {margin: 1rem 2rem;}
+    .now-card {margin-bottom: 0;}
+}
+
+/* ── TABLET STYLES (768px - 1023px) ── */
+@media (min-width: 768px) and (max-width: 1023px) {
+    .main .block-container {padding: 0.75rem 1.5rem;}
+    .control-section {padding: 1rem 1.5rem;}
+    .table-header, .forecast-row {
+        grid-template-columns: 3.5rem 1fr 1fr 2.5rem 2.5rem 2.5rem;
+    }
+    .toggle-group {min-width: 120px;}
+}
+
+/* ── MOBILE STYLES (max-width: 767px) ── */
+@media (max-width: 767px) {
+    .main .block-container {padding: 0.5rem;}
+    .app-header {padding: 0.625rem 1rem;}
+    .header-title {font-size: 1.125rem;}
+    .header-nav {gap: 1rem;}
+    .nav-link {font-size: 0.75rem; padding: 0.25rem;}
+    .control-section {padding: 0.875rem; margin: 0.5rem;}
+    .toggle-row {flex-wrap: wrap; gap: 0.5rem;}
+    .toggle-group {height: 2.25rem; min-width: unset;}
+    .crane-widget {padding: 0.5rem 0.875rem;}
+    .table-header, .forecast-row {
+        grid-template-columns: 3rem 1fr 2.5rem 2rem 2rem;
+        font-size: 0.75rem;
+        padding: 0.75rem 0.5rem;
+    }
+    .table-header span:nth-child(3), 
+    .forecast-row > div:nth-child(3) {display: none;}
+    .wind-cell {flex-direction: row; gap: 0.25rem; align-items: baseline;}
+    .wind-label {display: none;}
+    .wind-value {font-size: 0.875rem;}
+    .legend-bar {
+        flex-direction: column;
         gap: 1rem;
+        align-items: flex-start;
+        padding: 0.875rem;
+        margin: 0.5rem;
+    }
+    .now-grid {grid-template-columns: 1fr;}
+    .optimal-banner {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 0.875rem;
+        margin: 0.5rem;
+    }
+    .forecast-container {margin: 0.5rem;}
+    .info-section {padding: 1rem; margin: 0.5rem;}
+    .bottom-nav {padding: 0.625rem 0.5rem;}
+    .nav-item {padding: 0.5rem 1rem;}
+    .nav-label {font-size: 0.5625rem;}
+    .stButton > button {
+        font-size: 0.6875rem !important;
+        padding: 0.3125rem 0.75rem !important;
     }
 }
+
+/* ── VERY SMALL MOBILE (max-width: 480px) ── */
+@media (max-width: 480px) {
+    .header-title {font-size: 1rem;}
+    .header-nav {gap: 0.75rem;}
+    .nav-link {display: none;}
+    .toggle-group {font-size: 0.6875rem;}
+    .table-header, .forecast-row {
+        grid-template-columns: 2.75rem 1fr 2.25rem 1.75rem 1.75rem;
+        font-size: 0.6875rem;
+        padding: 0.625rem 0.375rem;
+    }
+    .wind-value {font-size: 0.8125rem;}
+}
 </style>
-"""
+""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONSTANTS
+# ══════════════════════════════════════════════════════════════════════════════
+WIND_UNIT_FACTORS = {
+    "m/s": (1.0, "m/s"),
+    "knots": (1.9438, "kt"),
+    "mph": (2.2369, "mph"),
+    "km/h": (3.6, "km/h"),
+}
+
+TERRAIN = {
+    "Open / Coastal": {"alpha": 0.14, "factor": 1.00, "icon": "🏖️"},
+    "Industrial / Port": {"alpha": 0.22, "factor": 1.10, "icon": "🏭"},
+    "Urban / City": {"alpha": 0.28, "factor": 1.20, "icon": "🏙️"},
+    "Woodland / Forest": {"alpha": 0.20, "factor": 1.15, "icon": "🌲"},
+}
 
 # ══════════════════════════════════════════════════════════════════════════════
 # HELPER FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 def fmt_wind(ms: float, unit: str) -> str:
-    if unit == "Beaufort":
-        thresholds = [0.5,1.6,3.4,5.5,8.0,10.8,13.9,17.2,20.8,24.5,28.5,32.7]
-        for i, t in enumerate(thresholds):
-            if ms < t: return f"{i}"
-        return "12"
     factor, label = WIND_UNIT_FACTORS.get(unit, (1.0, "m/s"))
     return f"{ms * factor:.1f}"
 
@@ -655,7 +662,7 @@ def parse_location(query: str):
     try:
         r = requests.get("https://nominatim.openstreetmap.org/search",
                         params={"q": q, "format": "json", "limit": 1},
-                        headers={"User-Agent": "Windcast/5.0"}, timeout=6)
+                        headers={"User-Agent": "Windcast/5.1"}, timeout=6)
         d = r.json()
         if d:
             return float(d[0]["lat"]), float(d[0]["lon"]), d[0].get("display_name","")[:50]
@@ -712,14 +719,11 @@ def fetch_forecast(lat: float, lon: float, hours: int = 168):
 # MAIN APP
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
-    # Inject CSS
-    st.markdown(get_css(), unsafe_allow_html=True)
-    
     # ── HEADER ────────────────────────────────────────────────────────────────
     st.markdown("""
     <div class="app-header">
         <div class="header-title">
-            <span style="color:#3b82f6">⚡</span>
+            <span style="color:#fbbf24">⚡</span>
             WINDCAST
         </div>
         <div class="header-nav">
@@ -729,28 +733,99 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # ── MOBILE CONTROLS ───────────────────────────────────────────────────────
+    # ── CONTROL SECTION ───────────────────────────────────────────────────────
     st.markdown('<div class="control-section">', unsafe_allow_html=True)
     
-    col1, col2 = st.columns([2, 1])
+    col1, col2 = st.columns([2, 1], gap="large")
     
     with col1:
         # Search
         st.markdown('<div class="search-container">', unsafe_allow_html=True)
-        search_val = st.text_input("Location", placeholder="LOCATION / POSTCODE", 
+        search_val = st.text_input("Location", placeholder="Postcode / Place / lat;lon", 
                                    label_visibility="collapsed", key="search_input")
         st.markdown('</div>', unsafe_allow_html=True)
         
         # Crane Height Widget
         st.markdown(f"""
         <div class="crane-widget">
-            <span style="color:#4d8eff">📏</span>
+            <span style="color:#fbbf24">📏</span>
             <span class="crane-label">Height</span>
             <input type="range" min="10" max="250" value="{st.session_state.crane_h}" 
-                   class="crane-slider" id="craneSlider" step="10" onchange="location.reload()">
+                   class="crane-slider" id="craneSlider" step="10">
             <span class="crane-value">{st.session_state.crane_h}m</span>
         </div>
         """, unsafe_allow_html=True)
+        
+        # Toggles Row 1: Land/Sea
+        st.markdown('<div class="toggle-row">', unsafe_allow_html=True)
+        st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
+        land_col, sea_col = st.columns(2)
+        with land_col:
+            if st.button("🏗️ LAND", key="land_btn", use_container_width=True, 
+                        type="primary" if st.session_state.mode=="land" else "secondary"):
+                st.session_state.mode = "land"
+                st.rerun()
+        with sea_col:
+            if st.button("⚓ SEA", key="sea_btn", use_container_width=True,
+                        type="primary" if st.session_state.mode=="offshore" else "secondary"):
+                st.session_state.mode = "offshore"
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Toggles Row 2: Terrain
+        st.markdown('<div class="toggle-row">', unsafe_allow_html=True)
+        terrain_cols = st.columns(4)
+        for i, (tkey, tval) in enumerate(TERRAIN.items()):
+            with terrain_cols[i]:
+                btn_type = "primary" if st.session_state.terrain == tkey else "secondary"
+                if st.button(f"{tval['icon']}", key=f"terrain_{i}", use_container_width=True, 
+                            type=btn_type, help=tkey):
+                    st.session_state.terrain = tkey
+                    st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Toggles Row 3: Duration
+        st.markdown('<div class="toggle-row">', unsafe_allow_html=True)
+        dur_cols = st.columns(3)
+        for i, (days, label) in enumerate([(1, "1d"), (3, "3d"), (7, "7d")]):
+            with dur_cols[i]:
+                btn_type = "primary" if st.session_state.fdays == days else "secondary"
+                if st.button(label, key=f"days_{days}", use_container_width=True, type=btn_type):
+                    st.session_state.fdays = days
+                    st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Toggles Row 4: Units & View
+        st.markdown('<div class="toggle-row">', unsafe_allow_html=True)
+        unit_col, view_col = st.columns([1, 1])
+        with unit_col:
+            st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
+            u1, u2 = st.columns(2)
+            with u1:
+                if st.button(st.session_state.wind_unit.upper(), key="unit_wind", 
+                            use_container_width=True, type="primary"):
+                    pass
+            with u2:
+                if st.button(st.session_state.temp_unit, key="unit_temp", 
+                            use_container_width=True, type="primary"):
+                    pass
+            st.markdown('</div>', unsafe_allow_html=True)
+        with view_col:
+            st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
+            v1, v2 = st.columns(2)
+            with v1:
+                if st.button("24h", key="view_24h", use_container_width=True,
+                            type="primary" if st.session_state.view_mode=="24h" else "secondary"):
+                    st.session_state.view_mode = "24h"
+                    st.rerun()
+            with v2:
+                if st.button("3h", key="view_3h", use_container_width=True,
+                            type="primary" if st.session_state.view_mode=="3h" else "secondary"):
+                    st.session_state.view_mode = "3h"
+                    st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
         # NOW Card
@@ -781,83 +856,6 @@ def main():
             </div>
         </div>
         """, unsafe_allow_html=True)
-    
-    # Toggles Row 1: Land/Sea + Terrain
-    st.markdown('<div class="toggle-row">', unsafe_allow_html=True)
-    
-    # Land/Sea
-    st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🏗️ LAND", key="land_btn", use_container_width=True, 
-                    type="primary" if st.session_state.mode=="land" else "secondary"):
-            st.session_state.mode = "land"
-            st.rerun()
-    with col2:
-        if st.button("⚓ SEA", key="sea_btn", use_container_width=True,
-                    type="primary" if st.session_state.mode=="offshore" else "secondary"):
-            st.session_state.mode = "offshore"
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Terrain
-    st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
-    terrain_cols = st.columns(4)
-    terrain_keys = list(TERRAIN.keys())
-    for i, (tkey, tval) in enumerate(TERRAIN.items()):
-        with terrain_cols[i]:
-            btn_type = "primary" if st.session_state.terrain == tkey else "secondary"
-            if st.button(f"{tval['icon']}", key=f"terrain_{i}", use_container_width=True, type=btn_type,
-                        help=tkey):
-                st.session_state.terrain = tkey
-                st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Toggles Row 2: Duration + Units + View Mode
-    st.markdown('<div class="toggle-row">', unsafe_allow_html=True)
-    
-    # Duration
-    st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
-    dur_cols = st.columns(3)
-    for i, (days, label) in enumerate([(1, "1d"), (3, "3d"), (7, "7d")]):
-        with dur_cols[i]:
-            btn_type = "primary" if st.session_state.fdays == days else "secondary"
-            if st.button(label, key=f"days_{days}", use_container_width=True, type=btn_type):
-                st.session_state.fdays = days
-                st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Units
-    st.markdown('<div class="toggle-group">', unsafe_allow_html=True)
-    unit_cols = st.columns(2)
-    with unit_cols[0]:
-        if st.button(st.session_state.wind_unit.upper(), key="unit_wind", use_container_width=True,
-                    type="primary"):
-            pass
-    with unit_cols[1]:
-        if st.button(st.session_state.temp_unit, key="unit_temp", use_container_width=True,
-                    type="primary"):
-            pass
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # View Mode (24h/3h)
-    st.markdown('<div class="toggle-group" style="min-width:120px">', unsafe_allow_html=True)
-    view_cols = st.columns(2)
-    with view_cols[0]:
-        if st.button("24h", key="view_24h", use_container_width=True,
-                    type="primary" if st.session_state.view_mode=="24h" else "secondary"):
-            st.session_state.view_mode = "24h"
-            st.rerun()
-    with view_cols[1]:
-        if st.button("3h", key="view_3h", use_container_width=True,
-                    type="primary" if st.session_state.view_mode=="3h" else "secondary"):
-            st.session_state.view_mode = "3h"
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -921,7 +919,6 @@ def main():
                 <span>Dir</span>
                 <span>Temp</span>
                 <span>Rain</span>
-                <span>Cloud</span>
             </div>
             """, unsafe_allow_html=True)
             
@@ -981,15 +978,15 @@ def main():
                 </div>
                 <div class="legend-items">
                     <div class="legend-item">
-                        <div class="status-indicator status-safe"></div>
+                        <div class="status-dot status-safe"></div>
                         <span>SAFE ≤5.9</span>
                     </div>
                     <div class="legend-item">
-                        <div class="status-indicator status-caution"></div>
+                        <div class="status-dot status-caution"></div>
                         <span>CAUTION 6–14</span>
                     </div>
                     <div class="legend-item">
-                        <div class="status-indicator status-stop"></div>
+                        <div class="status-dot status-stop"></div>
                         <span>STOP >14 m/s</span>
                     </div>
                 </div>
@@ -1049,7 +1046,7 @@ def main():
             <span class="nav-label">Share</span>
         </div>
     </div>
-    <div style="height:6rem"></div>
+    <div style="height:5rem"></div>
     """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
