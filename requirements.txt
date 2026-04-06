@@ -1,5 +1,7 @@
 streamlit
 pandas
-requests
 numpy
+requests
+qrcode
+suntime
 pytz
