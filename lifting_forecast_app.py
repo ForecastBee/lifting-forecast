@@ -37,7 +37,7 @@ FEEDBACK_URL = _secret("FEEDBACK_URL", "https://forms.gle/REPLACE_WITH_YOUR_FORM
 KOFI_URL     = "https://ko-fi.com/windcast"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GLOBAL CSS — Barlow Condensed / JetBrains Mono design system
+# GLOBAL CSS — Responsive Design System
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
