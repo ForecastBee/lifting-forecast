@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   WINDCAST  v5.4  —  Lifting Operations Weather Forecast                    ║
+║   WINDCAST  v5.5  —  Lifting Operations Weather Forecast                    ║
 ║   BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006 | NORSOK R-003       ║
 ║   Source: ECMWF IFS 0.25° via Open-Meteo (free tier)                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -135,6 +135,21 @@ body, .stApp { background: var(--bg) !important; color: var(--txt) !important; f
 }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(239,68,68,.3); }
 
+/* Search with integrated button */
+.search-with-btn {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.search-with-btn input {
+  flex: 1;
+  min-width: 0;
+}
+.search-with-btn button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* Terrain Selector - matching design */
 .terrain-selector {
   background: var(--card);
@@ -167,55 +182,6 @@ body, .stApp { background: var(--bg) !important; color: var(--txt) !important; f
   background: rgba(59,130,246,.2);
   color: var(--accent);
   border: 1px solid rgba(59,130,246,.3);
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   NOW CARD
-══════════════════════════════════════════════════════════════════ */
-.now-card {
-  background: var(--card);
-  border: 1px solid var(--rim);
-  border-radius: 12px;
-  padding: 1.25rem;
-  margin-bottom: 1rem;
-}
-.now-header {
-  display: flex; justify-content: space-between; align-items: flex-start;
-  margin-bottom: 1rem;
-}
-.now-title {
-  font-family: var(--font-h); font-weight: 900; font-size: .65rem;
-  letter-spacing: .15em; text-transform: uppercase; color: var(--txt-dim);
-}
-.now-status {
-  font-family: var(--font-h); font-weight: 900; font-size: 2rem;
-  color: #fff; line-height: 1;
-}
-.now-metrics {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem;
-  margin-bottom: 1rem;
-}
-.metric-box {
-  background: var(--bg); border: 1px solid var(--rim);
-  border-radius: 8px; padding: .75rem;
-}
-.metric-label {
-  font-family: var(--font-h); font-weight: 700; font-size: .6rem;
-  letter-spacing: .12em; text-transform: uppercase; color: var(--txt-dim);
-  margin-bottom: .35rem;
-}
-.metric-value {
-  font-family: var(--font-h); font-weight: 900; font-size: 1.75rem;
-  line-height: 1;
-}
-.mv-safe { color: var(--safe); }
-.mv-warn { color: var(--warn); }
-.mv-stop { color: var(--stop); }
-.mv-txt { color: var(--txt); }
-.now-footer {
-  display: flex; justify-content: space-between; align-items: center;
-  padding-top: .75rem; border-top: 1px solid var(--rim);
-  font-family: var(--font-m); font-size: .75rem; color: var(--txt-dim);
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -434,13 +400,13 @@ body, .stApp { background: var(--bg) !important; color: var(--txt) !important; f
   .td-time { font-size: .8rem; }
   .control-row { flex-direction: column; align-items: stretch; }
   .control-group { width: 100%; }
+  .search-with-btn { flex-direction: column; }
   .table-controls { flex-direction: column; align-items: flex-start; }
   .segmented-control { width: 100%; justify-content: space-between; }
   .seg-btn { flex: 1; text-align: center; }
 }
 @media (max-width: 480px) {
   .td-time { font-size: .75rem; }
-  .now-metrics { grid-template-columns: 1fr; }
   .opt-banner { flex-direction: column; text-align: center; }
 }
 
@@ -566,7 +532,7 @@ def place_to_coords(name):
     try:
         r = requests.get("https://nominatim.openstreetmap.org/search",
                          params={"q": name, "format": "json", "limit": 1},
-                         headers={"User-Agent": "Windcast/5.4"}, timeout=6)
+                         headers={"User-Agent": "Windcast/5.5"}, timeout=6)
         d = r.json()
         if d: return float(d[0]["lat"]), float(d[0]["lon"]), d[0].get("display_name","")[:70]
     except Exception: pass
@@ -803,56 +769,6 @@ def render_table(rows, hdr):
         unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# NOW CARD
-# ══════════════════════════════════════════════════════════════════════════════
-def render_now_card(df, crane_h, terrain, unit, mode):
-    if df is None or df.empty: return
-    row = df.iloc[0]
-    ws  = safe_float(row.get("wind_speed")); wg = safe_float(row.get("wind_gust"))
-    ws_h = apply_terrain(ws, terrain, crane_h) if mode=="land" else ws*((crane_h/10)**0.11)
-    wg_h = apply_terrain(wg, terrain, crane_h) if mode=="land" else wg*((crane_h/10)**0.11)
-    rl   = risk_level(wg_h); rl10 = risk_level(wg)
-    tmp  = safe_float(row.get("temperature")); prs = safe_float(row.get("pressure"), 1013.0)
-    wd   = row.get("wind_dir", np.nan)
-    try: wd_f = float(wd) if not np.isnan(float(wd)) else np.nan
-    except: wd_f = np.nan
-    dir_str = f"{direction_arrow(wd_f)} {wd_f:.0f}°" if not np.isnan(wd_f) else "—"
-    lbl = {"safe": "SAFE", "warn": "CAUTION", "stop": "STOP"}[rl]
-    
-    st.markdown(f"""
-<div class="now-card">
-  <div class="now-header">
-    <div>
-      <div class="now-title">Live Status</div>
-      <div class="now-status">NOW</div>
-    </div>
-    <span class="status-badge sts-{rl}">{lbl}</span>
-  </div>
-  <div class="now-metrics">
-    <div class="metric-box">
-      <div class="metric-label">Gust @10m</div>
-      <div class="metric-value mv-{rl10}">{fmt_wind(wg,unit)}</div>
-    </div>
-    <div class="metric-box">
-      <div class="metric-label">Gust @{crane_h}m ✦</div>
-      <div class="metric-value mv-{rl}">{fmt_wind(wg_h,unit)}</div>
-    </div>
-    <div class="metric-box">
-      <div class="metric-label">Wind @{crane_h}m ✦</div>
-      <div class="metric-value mv-txt">{fmt_wind(ws_h,unit)}</div>
-    </div>
-    <div class="metric-box">
-      <div class="metric-label">Direction</div>
-      <div style="font-family:var(--font-m);font-weight:700;font-size:1.1rem;color:var(--accent);padding-top:.1rem;">{dir_str}</div>
-    </div>
-  </div>
-  <div class="now-footer">
-    <span>{fmt_temp(tmp,"°C")}</span><span>{prs:.0f} hPa</span>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
 # OPTIMAL WINDOW
 # ══════════════════════════════════════════════════════════════════════════════
 def render_optimal_window(df, crane_h, terrain, mode):
@@ -1008,7 +924,7 @@ Open-Meteo free tier — full ECMWF IFS resolution for 7 days, updated every 6 h
         with c2: st.link_button("📝  Found an error? Tell me here.", FEEDBACK_URL, use_container_width=True)
         st.markdown(f"""<div class="wc-disclaimer">
 ⚠️ <strong>FOR PLANNING PURPOSES ONLY.</strong> Does not replace a calibrated on-site anemometer.
-BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°. v5.4
+BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°. v5.5
 </div>""", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         return
@@ -1140,21 +1056,17 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
     if df is None or df.empty:
         st.error("No forecast data."); return
 
-    # ── NOW card + optimal window + legend ────────────────────────────────────
+    # ── Optimal window + legend ───────────────────────────────────────────────
     st.markdown('<div style="padding:1.5rem;">', unsafe_allow_html=True)
     
-    col_now, col_right = st.columns([1, 2.5])
-    with col_now:
-        render_now_card(df, crane_h, terrain, wind_unit, mode)
-    with col_right:
-        render_optimal_window(df, crane_h, terrain, mode)
-        render_legend()
-        if mode == "offshore" and marine is not None and not marine.empty:
-            hs_now = safe_float(marine.iloc[0].get("hs"))
-            if hs_now >= 2.5:
-                cls = "box-danger" if hs_now >= 4.0 else "box-caution"
-                st.markdown(f'<div class="{cls}">⚓ <strong>Wave Height Warning:</strong> Hs = {hs_now:.2f}m</div>',
-                            unsafe_allow_html=True)
+    render_optimal_window(df, crane_h, terrain, mode)
+    render_legend()
+    if mode == "offshore" and marine is not None and not marine.empty:
+        hs_now = safe_float(marine.iloc[0].get("hs"))
+        if hs_now >= 2.5:
+            cls = "box-danger" if hs_now >= 4.0 else "box-caution"
+            st.markdown(f'<div class="{cls}">⚓ <strong>Wave Height Warning:</strong> Hs = {hs_now:.2f}m</div>',
+                        unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Table controls ────────────────────────────────────────────────────────
@@ -1214,7 +1126,7 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
     # ── Footer ────────────────────────────────────────────────────────────────
     st.markdown(f"""<div class="wc-disclaimer">
 ⚠️ <strong>FOR PLANNING PURPOSES ONLY.</strong> Does not replace a calibrated on-site anemometer.
-BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°. v5.4
+BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°. v5.5
 &nbsp;·&nbsp;<a href="{FEEDBACK_URL}" target="_blank" style="color:var(--txt-dim);">📝 Found an error? Tell me here.</a>
 </div>""", unsafe_allow_html=True)
 
