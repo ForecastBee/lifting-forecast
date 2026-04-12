@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║   WINDCAST  v5.3  —  Lifting Operations Weather Forecast                    ║
+║   WINDCAST  v5.4  —  Lifting Operations Weather Forecast                    ║
 ║   BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006 | NORSOK R-003       ║
 ║   Source: ECMWF IFS 0.25° via Open-Meteo (free tier)                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -27,7 +27,7 @@ FEEDBACK_URL = _secret("FEEDBACK_URL", "https://forms.gle/REPLACE_WITH_YOUR_FORM
 KOFI_URL     = "https://ko-fi.com/windcast"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CSS  — Matching the design mockups
+# CSS — Matching the design mockups
 # ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -111,7 +111,7 @@ body, .stApp { background: var(--bg) !important; color: var(--txt) !important; f
   padding: 1rem 1.5rem;
 }
 .control-row { display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap; }
-.control-group { display: flex; flex-direction: column; gap: .35rem; }
+.control-group { display: flex; flex-direction: column; gap: .35rem; flex: 1; }
 .control-label {
   font-family: var(--font-h); font-weight: 700; font-size: .65rem;
   letter-spacing: .12em; text-transform: uppercase; color: var(--txt-dim);
@@ -120,7 +120,7 @@ body, .stApp { background: var(--bg) !important; color: var(--txt) !important; f
   background: var(--card); border: 1px solid var(--rim);
   border-radius: 6px; padding: .5rem .75rem;
   font-family: var(--font-b); font-size: .85rem; color: var(--txt);
-  min-width: 200px;
+  width: 100%;
 }
 .control-input:focus {
   outline: none; border-color: var(--accent);
@@ -134,6 +134,40 @@ body, .stApp { background: var(--bg) !important; color: var(--txt) !important; f
   cursor: pointer; transition: all .15s;
 }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(239,68,68,.3); }
+
+/* Terrain Selector - matching design */
+.terrain-selector {
+  background: var(--card);
+  border: 1px solid var(--rim);
+  border-radius: 8px;
+  padding: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.terrain-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: transparent;
+  border: none;
+  font-family: var(--font-h);
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--txt-dim);
+}
+.terrain-option:hover {
+  background: var(--surface);
+}
+.terrain-option.active {
+  background: rgba(59,130,246,.2);
+  color: var(--accent);
+  border: 1px solid rgba(59,130,246,.3);
+}
 
 /* ══════════════════════════════════════════════════════════════════
    NOW CARD
@@ -281,12 +315,13 @@ body, .stApp { background: var(--bg) !important; color: var(--txt) !important; f
   background: var(--card);
   border: 1px solid var(--rim);
   border-radius: 12px;
-  overflow: hidden;
+  overflow-x: auto;
   margin-top: 1rem;
 }
 .wc-table {
   width: 100%; border-collapse: collapse;
   font-family: var(--font-b); font-size: .85rem;
+  min-width: 800px;
 }
 .wc-table thead tr {
   background: var(--surface);
@@ -333,6 +368,10 @@ body, .stApp { background: var(--bg) !important; color: var(--txt) !important; f
 .rain-2 { background: rgba(59,130,246,.12); }
 .rain-3 { background: rgba(59,130,246,.2); }
 .rain-4 { background: rgba(30,64,175,.35); }
+.temp-badge {
+  display: inline-block; padding: .25rem .5rem; border-radius: 6px;
+  font-weight: 600; font-size: .8rem;
+}
 
 /* ══════════════════════════════════════════════════════════════════
    STATUS BADGES
@@ -390,12 +429,11 @@ body, .stApp { background: var(--bg) !important; color: var(--txt) !important; f
   .wc-logo .bolt { font-size: 1.4rem; }
   .wc-nav-btn { padding: .3rem .65rem; font-size: .65rem; }
   .hide-mobile { display: none !important; }
-  .wc-table { font-size: .75rem; }
+  .wc-table { font-size: .75rem; min-width: 650px; }
   .wc-table td { padding: .6rem .4rem; }
   .td-time { font-size: .8rem; }
   .control-row { flex-direction: column; align-items: stretch; }
   .control-group { width: 100%; }
-  .control-input { min-width: 100%; }
   .table-controls { flex-direction: column; align-items: flex-start; }
   .segmented-control { width: 100%; justify-content: space-between; }
   .seg-btn { flex: 1; text-align: center; }
@@ -463,9 +501,8 @@ def risk_symbol(level):  return {"safe": "●", "warn": "⬡", "stop": "Ⓧ"}[le
 def risk_css(level):     return {"safe": "td-safe", "warn": "td-warn", "stop": "td-stop"}[level]
 
 def status_badge(level):
-    dot   = f'<span class="dot dot-{level}" style="width:.5rem;height:.5rem;"></span>'
     label = {"safe": "SAFE", "warn": "CAUTION", "stop": "STOP"}[level]
-    return f'<span class="status-badge sts-{level}">{dot} {label}</span>'
+    return f'<span class="status-badge sts-{level}">{label}</span>'
 
 def direction_arrow(deg):
     try:
@@ -505,6 +542,13 @@ def rain_row_class(mm):
     if mm < 5.0:  return "rain-3"
     return "rain-4"
 
+def rain_intensity(mm):
+    if mm == 0: return "None"
+    if mm < 0.5: return "Light"
+    if mm < 2.0: return "Moderate"
+    if mm < 5.0: return "Heavy"
+    return "Extreme"
+
 # ══════════════════════════════════════════════════════════════════════════════
 # LOCATION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -522,7 +566,7 @@ def place_to_coords(name):
     try:
         r = requests.get("https://nominatim.openstreetmap.org/search",
                          params={"q": name, "format": "json", "limit": 1},
-                         headers={"User-Agent": "Windcast/5.3"}, timeout=6)
+                         headers={"User-Agent": "Windcast/5.4"}, timeout=6)
         d = r.json()
         if d: return float(d[0]["lat"]), float(d[0]["lon"]), d[0].get("display_name","")[:70]
     except Exception: pass
@@ -574,16 +618,15 @@ def fetch_ecmwf_land(lat, lon, hours=168):
         ("hourly", "precipitation"), ("hourly", "cloud_cover"),
         ("hourly", "surface_pressure"), ("hourly", "visibility"),
         ("hourly", "relative_humidity_2m"),
-        ("daily", "sunrise"), ("daily", "sunset"),
     ]
     try:
         r = requests.get(url, params=params, timeout=15); r.raise_for_status()
         body = r.json()
         if body.get("error"):
-            st.error(f"Open-Meteo: {body.get('reason', body)}"); return None, [], None, None
-        h = body.get("hourly", {}); d = body.get("daily", {})
+            st.error(f"Open-Meteo: {body.get('reason', body)}"); return None, []
+        h = body.get("hourly", {})
         times = h.get("time", [])
-        if not times: return None, [], None, None
+        if not times: return None, []
         n = len(times)
         df = pd.DataFrame({
             "time":       pd.to_datetime(times),
@@ -598,9 +641,9 @@ def fetch_ecmwf_land(lat, lon, hours=168):
             "humidity":   pd.to_numeric(h.get("relative_humidity_2m", [np.nan]*n), errors="coerce"),
         })
         df = df[df["time"] >= pd.Timestamp.now().floor("h")].reset_index(drop=True)
-        return df, ["ECMWF IFS 0.25°"], d.get("sunrise",[None])[0], d.get("sunset",[None])[0]
+        return df, ["ECMWF IFS 0.25°"]
     except Exception as e:
-        st.error(f"Fetch error: {e}"); return None, [], None, None
+        st.error(f"Fetch error: {e}"); return None, []
 
 @st.cache_data(ttl=1800)
 def fetch_offshore_wind(lat, lon, hours=168):
@@ -678,16 +721,20 @@ def build_land_rows(df, crane_h, terrain, unit, temp_unit, hours, show_3h=False)
         except: wd_f = np.nan
         day_str = ts.strftime("%Y-%m-%d"); db = " day-break" if day_str != prev_day else ""; prev_day = day_str
         tc, tf = temp_colour(tmp)
+        rain_class = rain_row_class(prc)
+        dir_str = f"{direction_arrow(wd_f)} {wd_f:.0f}°" if not np.isnan(wd_f) else "—"
+        
         rows.append(
-            f'<tr class="{rain_row_class(prc)}{db}">'
+            f'<tr class="{rain_class}{db}">'
             f'<td class="td-time">{ts.strftime("%a %d %b %H:%M")}</td>'
             + wind_cells(ws, wg, ws_h, wg_h, unit, crane_h)
-            + f'<td class="td-dir">{direction_arrow(wd_f)} {wd_f:.0f}°</td>' if not np.isnan(wd_f) else '<td class="td-dir">—</td>'
-            + f'<td><span class="tc" style="background:{tc};color:{tf};">{fmt_temp(tmp,temp_unit)}</span></td>'
-            + f'<td class="td-dim" style="font-family:var(--font-m);font-size:.75rem;">{prc:.1f}mm</td>'
+            + f'<td class="td-dir">{dir_str}</td>'
+            + f'<td class="temp-cell"><span class="temp-badge" style="background:{tc};color:{tf};">{fmt_temp(tmp,temp_unit)}</span></td>'
+            + f'<td class="td-dim" style="font-family:var(--font-m);font-size:.75rem;">{prc:.1f}mm<br><small>{rain_intensity(prc)}</small></td>'
             + f'<td class="td-dim hide-mobile">{cld:.0f}%</td>'
-            + f'<td class="td-dim hide-mobile" style="font-family:var(--font-m);font-size:.75rem;">{prs:.0f}</td>'
-            + f'<td>{status_badge(risk_level(wg_h))}</td></tr>'
+            + f'<td class="td-dim hide-mobile" style="font-family:var(--font-m);font-size:.75rem;">{prs:.0f} hPa</td>'
+            + f'<td class="td-dim">{status_badge(risk_level(wg_h))}</td>'
+            + '</tr>'
         )
     return rows
 
@@ -700,6 +747,7 @@ def build_offshore_rows(wind_df, marine_df, crane_h, unit, temp_unit, hours, sho
         ws = safe_float(wrow.get("wind_speed")); wg = safe_float(wrow.get("wind_gust"))
         ws_h = ws * ((crane_h / 10) ** 0.11); wg_h = wg * ((crane_h / 10) ** 0.11)
         tmp = safe_float(wrow.get("temperature")); prc = safe_float(wrow.get("precip"))
+        cld = safe_float(wrow.get("cloud")); prs = safe_float(wrow.get("pressure"), 1013.0)
         wd  = wrow.get("wind_dir", np.nan)
         try: wd_f = float(wd) if not np.isnan(float(wd)) else np.nan
         except: wd_f = np.nan
@@ -714,17 +762,21 @@ def build_offshore_rows(wind_df, marine_df, crane_h, unit, temp_unit, hours, sho
             sw   = f"{sw_f:.2f}m"  if not np.isnan(sw_f) else "—"
         day_str = ts.strftime("%Y-%m-%d"); db = " day-break" if day_str != prev_day else ""; prev_day = day_str
         tc, tf = temp_colour(tmp)
+        rain_class = rain_row_class(prc)
+        dir_str = f"{direction_arrow(wd_f)} {wd_f:.0f}°" if not np.isnan(wd_f) else "—"
+        
         rows.append(
-            f'<tr class="{rain_row_class(prc)}{db}">'
+            f'<tr class="{rain_class}{db}">'
             f'<td class="td-time">{ts.strftime("%a %d %b %H:%M")}</td>'
             + wind_cells(ws, wg, ws_h, wg_h, unit, crane_h)
-            + f'<td class="td-dir">{direction_arrow(wd_f)} {wd_f:.0f}°</td>' if not np.isnan(wd_f) else '<td class="td-dir">—</td>'
+            + f'<td class="td-dir">{dir_str}</td>'
             + f'<td class="td-dim hide-mobile" style="font-family:var(--font-m);font-size:.75rem;">{hs}</td>'
             + f'<td class="td-dim hide-mobile" style="font-family:var(--font-m);font-size:.75rem;">{wp}</td>'
             + f'<td class="td-dir hide-mobile">{wd_w}</td>'
             + f'<td class="td-dim hide-mobile" style="font-family:var(--font-m);font-size:.75rem;">{sw}</td>'
-            + f'<td><span class="tc" style="background:{tc};color:{tf};">{fmt_temp(tmp,temp_unit)}</span></td>'
-            + f'<td>{status_badge(risk_level(wg_h))}</td></tr>'
+            + f'<td class="temp-cell"><span class="temp-badge" style="background:{tc};color:{tf};">{fmt_temp(tmp,temp_unit)}</span></td>'
+            + f'<td class="td-dim">{status_badge(risk_level(wg_h))}</td>'
+            + '</tr>'
         )
     return rows
 
@@ -746,14 +798,14 @@ def offshore_header(crane_h):
 
 def render_table(rows, hdr):
     st.markdown(
-        f'<div class="wc-table-wrap"><table class="wc-table">'
+        f'<div class="table-container"><table class="wc-table">'
         f'<thead>{hdr}</thead><tbody>{"".join(rows)}</tbody></table></div>',
         unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # NOW CARD
 # ══════════════════════════════════════════════════════════════════════════════
-def render_now_card(df, crane_h, terrain, unit, mode, sunrise=None, sunset=None):
+def render_now_card(df, crane_h, terrain, unit, mode):
     if df is None or df.empty: return
     row = df.iloc[0]
     ws  = safe_float(row.get("wind_speed")); wg = safe_float(row.get("wind_gust"))
@@ -774,7 +826,7 @@ def render_now_card(df, crane_h, terrain, unit, mode, sunrise=None, sunset=None)
       <div class="now-title">Live Status</div>
       <div class="now-status">NOW</div>
     </div>
-    <span class="status-badge sts-{rl}"><span class="dot dot-{rl}" style="width:.5rem;height:.5rem;"></span> {lbl}</span>
+    <span class="status-badge sts-{rl}">{lbl}</span>
   </div>
   <div class="now-metrics">
     <div class="metric-box">
@@ -856,6 +908,7 @@ def main():
         "loc_name":       "",
         "wc_dur":         "1D",
         "wc_res":         "24H",
+        "terrain":        "Open / Coastal",
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
@@ -884,7 +937,7 @@ def main():
 <div class="wc-nav">
   <div class="wc-logo"><span class="bolt">⚡</span> Wind<span class="cast">cast</span></div>
   <div class="wc-nav-right">
-    <button class="wc-nav-btn {fc_cls}"  onclick="window.location.href='?tab=forecast&mode={mode}'">🌤️ Forecast</button>
+    <button class="wc-nav-btn {fc_cls}" onclick="window.location.href='?tab=forecast&mode={mode}'">🌤️ Forecast</button>
     <button class="wc-nav-btn {inf_cls}" onclick="window.location.href='?tab=info&mode={mode}'">ℹ️ Info</button>
     <div class="wc-nav-sep"></div>
     <button class="wc-nav-btn {land_cls}" onclick="window.location.href='?tab={active_tab}&mode=land'">🏗️ Land</button>
@@ -902,7 +955,7 @@ def main():
         m = params["mode"]
         if m in ("land","offshore") and m != st.session_state.mode:
             st.session_state.mode = m; mode = m
-            for k in ["df_cache","marine_cache","fetch_time","sunrise","sunset"]:
+            for k in ["df_cache","marine_cache","fetch_time"]:
                 st.session_state.pop(k, None)
 
     # ── Disclaimer ────────────────────────────────────────────────────────────
@@ -955,7 +1008,7 @@ Open-Meteo free tier — full ECMWF IFS resolution for 7 days, updated every 6 h
         with c2: st.link_button("📝  Found an error? Tell me here.", FEEDBACK_URL, use_container_width=True)
         st.markdown(f"""<div class="wc-disclaimer">
 ⚠️ <strong>FOR PLANNING PURPOSES ONLY.</strong> Does not replace a calibrated on-site anemometer.
-BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°. v5.3
+BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°. v5.4
 </div>""", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
         return
@@ -964,13 +1017,12 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
     # FORECAST PAGE
     # ══════════════════════════════════════════════════════════════════════════
     terrain_keys  = list(TERRAIN.keys())
-    terrain_icons = [f"{TERRAIN[k]['icon']} {k}" for k in terrain_keys]
 
     # ── Controls bar ──────────────────────────────────────────────────────────
     st.markdown('<div class="wc-controls">', unsafe_allow_html=True)
     st.markdown('<div class="control-row">', unsafe_allow_html=True)
 
-    col1, col2, col3, col4, col5, col6, col7 = st.columns([3, 1, 1.5, 2, 1, 0.8, 1.5])
+    col1, col2, col3, col4, col5, col6 = st.columns([2.5, 0.8, 1.5, 0.8, 0.6, 0.8])
 
     with col1:
         st.markdown('<div class="control-group">', unsafe_allow_html=True)
@@ -994,8 +1046,12 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
         if mode == "land":
             st.markdown('<div class="control-group">', unsafe_allow_html=True)
             st.markdown('<div class="control-label">Terrain</div>', unsafe_allow_html=True)
-            ter_choice = st.selectbox("Terrain", terrain_icons, key="terrain_sel", label_visibility="collapsed")
-            terrain = terrain_keys[terrain_icons.index(ter_choice)]
+            # Custom terrain selector using selectbox with icons
+            terrain_options = [f"{TERRAIN[t]['icon']} {t}" for t in terrain_keys]
+            current_idx = terrain_keys.index(st.session_state.terrain)
+            ter_choice = st.selectbox("Terrain", terrain_options, index=current_idx, key="terrain_sel", label_visibility="collapsed")
+            terrain = terrain_keys[terrain_options.index(ter_choice)]
+            st.session_state.terrain = terrain
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             terrain = "Open / Coastal"
@@ -1013,13 +1069,14 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col6:
-        st.markdown('<div style="height:2.5rem"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="height:1.75rem"></div>', unsafe_allow_html=True)
         save_btn = st.button("📌", key="save_btn", help="Save this site", use_container_width=True)
 
-    with col7:
-        st.markdown('<div style="height:2.5rem"></div>', unsafe_allow_html=True)
-        fetch_btn = st.button("🌤️ Get Forecast", key="fetch_btn", use_container_width=True)
-
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Second row for fetch button
+    st.markdown('<div class="control-row" style="justify-content:flex-end;">', unsafe_allow_html=True)
+    fetch_btn = st.button("🌤️ GET FORECAST", key="fetch_btn", use_container_width=False)
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1045,6 +1102,8 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
             loc = next(l for l in saved if l["name"] == picked)
             st.session_state.lat = loc["lat"]; st.session_state.lon = loc["lon"]
             st.session_state.loc_name = loc["name"]; st.session_state.crane_h = loc.get("crane_h", crane_h)
+            st.session_state.terrain = loc.get("terrain", terrain)
+            st.rerun()
 
     if lat is None:
         st.markdown("""<div class="box-info" style="margin:1.5rem;">
@@ -1056,30 +1115,28 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
     if fetch_btn:
         st.query_params.update({"lat": f"{lat:.4f}", "lon": f"{lon:.4f}", "h": str(crane_h), "mode": mode})
         fetch_ecmwf_land.clear(); fetch_offshore_wind.clear(); fetch_offshore_marine.clear()
-        for k in ["df_cache","marine_cache","fetch_time","sunrise","sunset","models_used"]:
+        for k in ["df_cache","marine_cache","fetch_time","models_used"]:
             st.session_state.pop(k, None)
 
     if fetch_btn or "df_cache" not in st.session_state:
         if mode == "land":
             with st.spinner("Fetching ECMWF IFS forecast…"):
-                df, models_used, sunrise, sunset = fetch_ecmwf_land(lat, lon, 168)
+                df, models_used = fetch_ecmwf_land(lat, lon, 168)
             if df is None or df.empty:
                 st.error("Weather model failed to respond."); return
             st.session_state.df_cache = df; st.session_state.models_used = models_used
-            st.session_state.marine_cache = None; st.session_state.sunrise = sunrise; st.session_state.sunset = sunset
+            st.session_state.marine_cache = None
         else:
             with st.spinner("Fetching ECMWF wind + Marine data…"):
                 df = fetch_offshore_wind(lat, lon, 168); marine = fetch_offshore_marine(lat, lon, 168)
             if df is None or df.empty:
                 st.error("Failed to fetch wind data."); return
             st.session_state.df_cache = df; st.session_state.marine_cache = marine
-            st.session_state.sunrise = None; st.session_state.sunset = None
         st.session_state.fetch_time = datetime.now(timezone.utc)
 
     df      = st.session_state.get("df_cache")
     marine  = st.session_state.get("marine_cache")
     fetch_t = st.session_state.get("fetch_time", datetime.now(timezone.utc))
-    sunrise = st.session_state.get("sunrise"); sunset = st.session_state.get("sunset")
     if df is None or df.empty:
         st.error("No forecast data."); return
 
@@ -1088,7 +1145,7 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
     
     col_now, col_right = st.columns([1, 2.5])
     with col_now:
-        render_now_card(df, crane_h, terrain, wind_unit, mode, sunrise, sunset)
+        render_now_card(df, crane_h, terrain, wind_unit, mode)
     with col_right:
         render_optimal_window(df, crane_h, terrain, mode)
         render_legend()
@@ -1106,13 +1163,21 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
     updated_str = fetch_t.strftime("%H:%M") if fetch_t else "--:--"
     mode_src    = "ECMWF IFS 0.25°" if mode == "land" else "ECMWF Marine"
     
+    # Handle duration/resolution from URL or session
+    if "dur" in st.query_params:
+        d = st.query_params["dur"]
+        if d in DUR_OPTS: st.session_state.wc_dur = d
+    if "res" in st.query_params:
+        r = st.query_params["res"]
+        if r in RES_OPTS: st.session_state.wc_res = r
+    
     st.markdown(f"""
 <div class="table-controls">
   <div>
     <div class="table-title">Forecast</div>
     <div class="table-meta">{loc_name[:40]} · {updated_str} UTC · {mode_src}</div>
   </div>
-  <div style="display:flex;gap:1rem;align-items:center;">
+  <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;">
     <div class="segmented-control">
       <button class="seg-btn {'active' if st.session_state.wc_dur=='1D' else ''}" onclick="location.href='?dur=1D'">1D</button>
       <button class="seg-btn {'active' if st.session_state.wc_dur=='3D' else ''}" onclick="location.href='?dur=3D'">3D</button>
@@ -1129,14 +1194,6 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
 </div>
 """, unsafe_allow_html=True)
     
-    # Handle duration/resolution from URL
-    if "dur" in st.query_params:
-        d = st.query_params["dur"]
-        if d in DUR_OPTS: st.session_state.wc_dur = d
-    if "res" in st.query_params:
-        r = st.query_params["res"]
-        if r in RES_OPTS: st.session_state.wc_res = r
-    
     forecast_hours = DUR_MAP[st.session_state.wc_dur]
     show_3h = (st.session_state.wc_res == "3H")
     
@@ -1151,14 +1208,13 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
         hdr  = offshore_header(crane_h)
 
     st.markdown('<div style="padding:0 1.5rem 1.5rem 1.5rem;">', unsafe_allow_html=True)
-    st.markdown('<div class="table-container">', unsafe_allow_html=True)
     render_table(rows, hdr)
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ── Footer ────────────────────────────────────────────────────────────────
     st.markdown(f"""<div class="wc-disclaimer">
 ⚠️ <strong>FOR PLANNING PURPOSES ONLY.</strong> Does not replace a calibrated on-site anemometer.
-BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°. v5.3
+BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°. v5.4
 &nbsp;·&nbsp;<a href="{FEEDBACK_URL}" target="_blank" style="color:var(--txt-dim);">📝 Found an error? Tell me here.</a>
 </div>""", unsafe_allow_html=True)
 
