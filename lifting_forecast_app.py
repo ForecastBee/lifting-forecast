@@ -24,7 +24,7 @@ def _secret(key, fallback=None):
     except Exception: return fallback
 
 FEEDBACK_URL = _secret("FEEDBACK_URL", "https://forms.gle/REPLACE_WITH_YOUR_FORM_URL")
-KOFI_URL     = "https://ko-fi.com/windcast"
+KOFI_URL     = _secret("KOFI_URL", "https://ko-fi.com/windcast")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CSS
