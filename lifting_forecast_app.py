@@ -699,7 +699,7 @@ def render_info():
     st.markdown("""
 <div style="margin-bottom:1.1rem;">
   <div class="info-h">👤 About the Creator</div>
-  <p class="info-p">Built between jobs, out of sheer frustration. You know how it is on site — you're trying to make a Go/No-Go call, you check the weather, and what you get bears no resemblance to what the anemometer on the hook block is reading.</p>
+  <p class="info-p">Built between jobs, out of sheer frustration. You know how it is on site — you're trying to make a Go/No-Go call, you check the weather, and what you get bears no resemblance to what the anemometer on the end of the jib is reading.</p>
   <p class="info-p">My wife — a UX designer — finally said: <em>"You clearly know what's wrong with these tools — so build a better one."</em> Six months later it's grown beyond what I expected.</p>
 </div>
 <div style="margin-bottom:1.1rem;">
