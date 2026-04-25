@@ -772,7 +772,7 @@ BS 7121-1:2016 | LOLER 1998 | HSE PM55 | IMCA LR006. Open-Meteo ECMWF IFS 0.25°
 def main():
     # ── Session state init ────────────────────────────────────────────────────
     defaults={
-        "disclaimer_ack":False,
+        "disclaimer_ack":True,
         "active_tab":"forecast",   # "forecast"|"info"
         "mode":"land",             # "land"|"offshore"
         "crane_h":40,
