@@ -61,52 +61,16 @@ div[data-testid="stVerticalBlockBorderWrapper"]{padding:0!important;}
 /* ════════════════════════════════════════════════════════════
    NAV BAR — logo rendered in HTML, buttons via Streamlit
 ════════════════════════════════════════════════════════════ */
-.wc-nav-wrap{
-  background:rgba(14,23,41,.97);
-  backdrop-filter:blur(12px);
-  border-bottom:1px solid var(--rim);
-  position:sticky;top:0;z-index:100;
-  display:flex;align-items:center;
-  height:56px;padding:0 1rem;gap:.5rem;
-}
-.wc-logo{
-  font-family:var(--font-h);font-weight:900;font-size:1.4rem;
-  letter-spacing:.06em;display:flex;align-items:center;gap:.3rem;
-  flex-shrink:0;
-}
+
+
 .wc-logo .bolt{color:#fbbf24;}
 .wc-logo .cast{color:var(--accent);}
-.nav-spacer{flex:1;}
-.wc-nav-sep{width:1px;height:20px;background:var(--rim);flex-shrink:0;}
+
+
 
 /* Style ALL nav buttons via wrappers */
-.nav-btn button{
-  background:transparent!important;
-  border:1px solid transparent!important;
-  border-radius:6px!important;
-  color:var(--txt-dim)!important;
-  font-family:var(--font-h)!important;
-  font-weight:700!important;font-size:.72rem!important;
-  letter-spacing:.08em!important;text-transform:uppercase!important;
-  padding:.28rem .85rem!important;
-  transition:all .15s!important;
-  height:auto!important;min-height:0!important;
-  white-space:nowrap!important;
-}
-.nav-btn button:hover{background:var(--card)!important;color:var(--txt)!important;}
 
-/* Active forecast/info */
-.nav-btn-active button{
-  background:rgba(59,130,246,.15)!important;
-  color:var(--accent)!important;
-  border-color:rgba(59,130,246,.3)!important;
-}
-/* Active sea */
-.nav-btn-sea-active button{
-  background:rgba(239,68,68,.12)!important;
-  color:var(--stop)!important;
-  border-color:rgba(239,68,68,.25)!important;
-}
+
 
 /* ════════════════════════════════════════════════════════════
    CONTROLS BAR
@@ -315,7 +279,7 @@ div[data-testid="stRadio"]>div[role="radiogroup"]>label:has(input:checked){
    MOBILE NAV BAR — 2-row pill toggles, hidden on desktop
 ════════════════════════════════════════════════════════════ */
 .mob-nav-bar{
-  display:none;  /* desktop: hidden */
+  display:flex;
   background:rgba(14,23,41,.97);
   border-bottom:1px solid var(--rim);
   padding:.45rem .75rem .5rem .75rem;
@@ -328,6 +292,10 @@ div[data-testid="stRadio"]>div[role="radiogroup"]>label:has(input:checked){
   letter-spacing:.06em;display:flex;align-items:center;gap:.3rem;
   padding-bottom:.1rem;
 }
+@media(min-width:769px){
+  .mob-logo{font-size:1.4rem;}
+}
+
 .mob-logo .bolt{color:#fbbf24;}
 .mob-logo .cast{color:var(--accent);}
 
@@ -336,7 +304,6 @@ div[data-testid="stRadio"]>div[role="radiogroup"]>label:has(input:checked){
 ════════════════════════════════════════════════════════════ */
 @media(max-width:768px){
   /* Hide desktop nav, show mobile nav */
-  .wc-nav-wrap{display:none!important;}
   .mob-nav-bar{display:flex!important;}
 
   .hide-mobile{display:none!important;}
@@ -833,51 +800,7 @@ def main():
     active_tab=st.session_state.active_tab
     mode=st.session_state.mode
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # DESKTOP NAV — hidden on mobile via CSS display:none
-    # ══════════════════════════════════════════════════════════════════════════
-    st.markdown('<div class="wc-nav-wrap">', unsafe_allow_html=True)
-
-    logo_col, sp, c_fc, c_inf, sep_col, c_land, c_sea = st.columns(
-        [1.8, 3.5, 0.6, 0.5, 0.05, 0.55, 0.5])
-
-    with logo_col:
-        st.markdown('<div class="wc-logo"><span class="bolt">⚡</span> Wind<span class="cast">cast</span></div>',
-                    unsafe_allow_html=True)
-    with c_fc:
-        fc_wrap = "nav-btn nav-btn-active" if active_tab=="forecast" else "nav-btn"
-        st.markdown(f'<div class="{fc_wrap}">', unsafe_allow_html=True)
-        if st.button("🌤 Forecast", key="nav_fc", use_container_width=True):
-            st.session_state.active_tab="forecast"; st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with c_inf:
-        inf_wrap = "nav-btn nav-btn-active" if active_tab=="info" else "nav-btn"
-        st.markdown(f'<div class="{inf_wrap}">', unsafe_allow_html=True)
-        if st.button("ℹ Info", key="nav_inf", use_container_width=True):
-            st.session_state.active_tab="info"; st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with sep_col:
-        st.markdown('<div class="wc-nav-sep" style="margin:auto;"></div>', unsafe_allow_html=True)
-    with c_land:
-        land_wrap = "nav-btn nav-btn-active" if mode=="land" else "nav-btn"
-        st.markdown(f'<div class="{land_wrap}">', unsafe_allow_html=True)
-        if st.button("🏗 Land", key="nav_land", use_container_width=True):
-            if mode!="land":
-                st.session_state.mode="land"
-                for k in ["df_cache","marine_cache","fetch_time"]: st.session_state.pop(k,None)
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with c_sea:
-        sea_wrap = "nav-btn nav-btn-sea-active" if mode=="offshore" else "nav-btn"
-        st.markdown(f'<div class="{sea_wrap}">', unsafe_allow_html=True)
-        if st.button("⚓ Sea", key="nav_sea", use_container_width=True):
-            if mode!="offshore":
-                st.session_state.mode="offshore"
-                for k in ["df_cache","marine_cache","fetch_time"]: st.session_state.pop(k,None)
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)  # close desktop nav
+    
 
     # ══════════════════════════════════════════════════════════════════════════
     # MOBILE NAV — shown only on screens ≤768px, hidden on desktop via CSS
